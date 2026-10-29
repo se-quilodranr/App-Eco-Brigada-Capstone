@@ -1,4 +1,5 @@
-<img width="1254" height="1254" alt="Logo" src="https://github.com/user-attachments/assets/1c9598b9-4477-4830-acae-c36602b9ffd6" />
+<img width="500" height="500" alt="Logo" src="https://github.com/user-attachments/assets/1ef7fd94-ff4c-4265-8357-8cdb0ebe21bf" />
+
 #  Plataforma Comunitaria para la Recuperación de Espacios Públicos
 
 Aplicación móvil orientada a conectar a personas y comunidades que quieran participar en la limpieza, recuperación y cuidado de espacios públicos. La plataforma busca facilitar el reporte de zonas con basura, la coordinación de brigadas de limpieza y el seguimiento de las acciones realizadas.
