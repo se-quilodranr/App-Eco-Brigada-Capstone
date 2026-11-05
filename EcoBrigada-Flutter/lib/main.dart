@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-
 import 'firebase_options.dart';
+import 'pages/brigadas_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +38,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int selectedIndex = 0;
-  static const sections = ['Inicio', 'Comunidad', 'Mapa', 'Noticias', 'Logros'];
+  static const sections = ['Inicio', 'Brigada', 'Mapa', 'Noticias', 'Logros'];
   static const icons = [
     Icons.home_outlined,
     Icons.groups_outlined,
@@ -138,11 +138,13 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: selectedIndex == 0
-          ? const WelcomeContent()
-          : SectionContent(
+            ? const WelcomeContent()
+            : selectedIndex == 1
+            ? const BrigadasPage()
+            : SectionContent(
               title: sections[selectedIndex],
               icon: icons[selectedIndex],
-            ),
+          ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: navigateTo,
@@ -199,7 +201,7 @@ class WelcomeContent extends StatelessWidget {
         const Card(
           child: ListTile(
             leading: Icon(Icons.groups, color: Colors.green),
-            title: Text('Comunidad'),
+            title: Text('Brigada'),
             subtitle: Text('Participa en iniciativas ambientales'),
           ),
         ),
@@ -285,62 +287,91 @@ class _AuthPageState extends State<AuthPage> {
     super.dispose();
   }
 
-  Future<void> submit() async {
-    if (!formKey.currentState!.validate()) return;
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final email = emailController.text.trim();
-      final password = passwordController.text;
-      if (register) {
-        final credentials = await FirebaseAuth.instance
-            .createUserWithEmailAndPassword(email: email, password: password);
-        final uid = credentials.user!.uid;
-        await credentials.user!.updateDisplayName(nameController.text.trim());
-        await FirebaseFirestore.instance.collection('usuarios').doc(uid).set({
-          'uid': uid,
-          'nombre': nameController.text.trim(),
-          'correo': email,
-          'puntos': 0,
-          'fechaRegistro': FieldValue.serverTimestamp(),
-        });
-      } else {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-      }
-      if (mounted) Navigator.pop(context, true);
-    } on FirebaseAuthException catch (e) {
-      if (mounted)
-        setState(
-          () => error = switch (e.code) {
-            'email-already-in-use' => 'Este correo ya está registrado.',
-            'invalid-email' => 'El correo no es válido.',
-            'weak-password' => 'La contraseña es demasiado débil.',
-            'invalid-credential' ||
-            'wrong-password' ||
-            'user-not-found' => 'Correo o contraseña incorrectos.',
-            _ => e.message ?? 'No fue posible autenticarte.',
-          },
-        );
-    } on FirebaseException catch (e) {
-      if (mounted)
-        setState(
-          () => error =
-              'Error al guardar el perfil: ${e.message ?? e.code}. Revisa Firestore y sus reglas.',
-        );
-    } catch (_) {
-      if (mounted)
-        setState(
-          () => error = 'Ocurrió un error inesperado. Intenta nuevamente.',
-        );
-    } finally {
-      if (mounted) setState(() => loading = false);
+
+Future<void> submit() async {
+  if (!formKey.currentState!.validate()) return;
+
+  setState(() {
+    loading = true;
+    error = null;
+  });
+
+  try {
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+
+    if (register) {
+      final credentials = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+
+      final uid = credentials.user!.uid;
+
+      await credentials.user!.updateDisplayName(
+        nameController.text.trim(),
+      );
+
+      await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(uid)
+          .set({
+            'uid': uid,
+            'nombre': nameController.text.trim(),
+            'correo': email,
+            'puntos': 0,
+            'fechaRegistro': FieldValue.serverTimestamp(),
+          });
+    } else {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    }
+
+    if (mounted) {
+      Navigator.pop(context, true);
+    }
+
+  } on FirebaseAuthException catch (e) {
+    if (mounted) {
+      setState(() {
+        error = switch (e.code) {
+          'email-already-in-use' => 'Este correo ya está registrado.',
+          'invalid-email' => 'El correo no es válido.',
+          'weak-password' => 'La contraseña es demasiado débil.',
+          'invalid-credential' ||
+          'wrong-password' ||
+          'user-not-found' => 'Correo o contraseña incorrectos.',
+          _ => e.message ?? 'No fue posible autenticarte.',
+        };
+      });
+    }
+
+  } on FirebaseException catch (e) {
+    if (mounted) {
+      setState(() {
+        error =
+            'Error al guardar el perfil: ${e.message ?? e.code}. Revisa Firestore y sus reglas.';
+      });
+    }
+
+  } catch (_) {
+    if (mounted) {
+      setState(() {
+        error = 'Ocurrió un error inesperado. Intenta nuevamente.';
+      });
+    }
+
+  } finally {
+    if (mounted) {
+      setState(() {
+        loading = false;
+      });
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
