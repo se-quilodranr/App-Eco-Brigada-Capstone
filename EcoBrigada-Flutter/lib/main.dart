@@ -7,7 +7,9 @@ import 'firebase_options.dart';
 import 'pages/brigadas_page.dart';
 import 'pages/perfil_page.dart';
 import 'pages/publicaciones_page.dart';
-import 'pages/mapa_page.dart';
+=========
+import 'pages/perfil_page.dart';
+>>>>>>>>> Temporary merge branch 2
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -184,19 +186,24 @@ class _HomePageState extends State<HomePage> {
       ),
 
       body: selectedIndex == 0
+<<<<<<<<< Temporary merge branch 1
+            ? const WelcomeContent()
+            : selectedIndex == 1
+            ? const BrigadasPage()
+            : selectedIndex == 3
+            ? PublicacionesPage(
+                onSolicitarLogin: () async {
+                  await openAuth(false, 3);
+                  return FirebaseAuth.instance.currentUser != null;
+                },
+              )
+            : SectionContent(
+=========
           ? const WelcomeContent()
           : selectedIndex == 1
           ? const BrigadasPage()
-          : selectedIndex == 2
-          ? const MapaPage()
-          : selectedIndex == 3
-          ? PublicacionesPage(
-              onSolicitarLogin: () async {
-                await openAuth(false, 3);
-                return FirebaseAuth.instance.currentUser != null;
-              },
-            )
           : SectionContent(
+>>>>>>>>> Temporary merge branch 2
               title: sections[selectedIndex],
               icon: icons[selectedIndex],
             ),
