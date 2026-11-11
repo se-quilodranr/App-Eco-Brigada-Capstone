@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'firebase_options.dart';
 import 'pages/brigadas_page.dart';
+import 'pages/publicaciones_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,12 +39,12 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int selectedIndex = 0;
-  static const sections = ['Inicio', 'Brigada', 'Mapa', 'Noticias', 'Logros'];
+  static const sections = ['Inicio', 'Brigada', 'Mapa', 'Guías', 'Logros'];
   static const icons = [
     Icons.home_outlined,
     Icons.groups_outlined,
     Icons.map_outlined,
-    Icons.article_outlined,
+    Icons.auto_stories_outlined,
     Icons.emoji_events_outlined,
   ];
 
@@ -141,6 +142,13 @@ class _HomePageState extends State<HomePage> {
             ? const WelcomeContent()
             : selectedIndex == 1
             ? const BrigadasPage()
+            : selectedIndex == 3
+            ? PublicacionesPage(
+                onSolicitarLogin: () async {
+                  await openAuth(false, 3);
+                  return FirebaseAuth.instance.currentUser != null;
+                },
+              )
             : SectionContent(
               title: sections[selectedIndex],
               icon: icons[selectedIndex],
@@ -215,8 +223,8 @@ class WelcomeContent extends StatelessWidget {
         const Card(
           child: ListTile(
             leading: Icon(Icons.article, color: Colors.green),
-            title: Text('Noticias'),
-            subtitle: Text('Entérate de las novedades ambientales'),
+            title: Text('Publicaciones'),
+            subtitle: Text('Publica y descubre manuales de reciclaje'),
           ),
         ),
         const Card(
