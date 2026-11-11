@@ -8,6 +8,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/zona_critica.dart';
+import 'impacto_page.dart';
+import 'qr_punto_page.dart';
+import '../services/notificaciones_push.dart';
+
 import '../services/alertas_cercanas.dart';
 
 // Cuatro categorías que usa el mapa comunitario.
@@ -15,25 +20,25 @@ enum TipoPunto { reciclaje, sucio, brigada, limpiado }
 
 extension DatosTipoPunto on TipoPunto {
   String get etiqueta => switch (this) {
-        TipoPunto.reciclaje => 'Reciclaje',
-        TipoPunto.sucio => 'Punto sucio',
-        TipoPunto.brigada => 'Brigada',
-        TipoPunto.limpiado => 'Punto limpiado',
-      };
+    TipoPunto.reciclaje => 'Reciclaje',
+    TipoPunto.sucio => 'Punto sucio',
+    TipoPunto.brigada => 'Brigada',
+    TipoPunto.limpiado => 'Punto limpiado',
+  };
 
   Color get color => switch (this) {
-        TipoPunto.reciclaje => const Color(0xFF16845C),
-        TipoPunto.sucio => const Color(0xFFD88720),
-        TipoPunto.brigada => const Color(0xFF287BC4),
-        TipoPunto.limpiado => const Color(0xFF7E5BC7),
-      };
+    TipoPunto.reciclaje => const Color(0xFF16845C),
+    TipoPunto.sucio => const Color(0xFFD88720),
+    TipoPunto.brigada => const Color(0xFF287BC4),
+    TipoPunto.limpiado => const Color(0xFF7E5BC7),
+  };
 
   IconData get icono => switch (this) {
-        TipoPunto.reciclaje => Icons.recycling,
-        TipoPunto.sucio => Icons.delete_outline,
-        TipoPunto.brigada => Icons.groups,
-        TipoPunto.limpiado => Icons.check_circle_outline,
-      };
+    TipoPunto.reciclaje => Icons.recycling,
+    TipoPunto.sucio => Icons.delete_outline,
+    TipoPunto.brigada => Icons.groups,
+    TipoPunto.limpiado => Icons.check_circle_outline,
+  };
 }
 
 class PuntoEco {
@@ -61,10 +66,13 @@ class PuntoEco {
     required this.cantidadParticipantes,
   });
 
-  factory PuntoEco.desdeDocumento(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
+  factory PuntoEco.desdeDocumento(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
+    if (data == null) {
+      throw const FormatException(
+        'El documento de Firestore no contiene datos',
+      );
+    }
     final gps = data['ubicacion'] as GeoPoint;
     final tipo = TipoPunto.values.firstWhere(
       (element) => element.name == data['tipo'],
@@ -101,12 +109,15 @@ class _MapaPageState extends State<MapaPage> {
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _puntosSubscription;
   StreamSubscription<Position>? _ubicacionSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _zonasSubscription;
 
   // Centro inicial de referencia; se reemplaza por GPS si el usuario acepta.
   static const _centroInicial = LatLng(-36.8270, -73.0498);
   static const _verde = Color(0xFF21865A);
 
   List<PuntoEco> _puntos = [];
+  List<ZonaCritica> _zonas = [];
+  bool _verZonas = true;
   LatLng? _miUbicacion;
   bool _cargandoUbicacion = false;
   bool _seleccionandoEnMapa = false;
@@ -121,6 +132,7 @@ class _MapaPageState extends State<MapaPage> {
     super.initState();
     _recuperarRadio();
     _escucharPuntos();
+    _escucharZonas();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _obtenerUbicacion();
     });
@@ -129,6 +141,7 @@ class _MapaPageState extends State<MapaPage> {
   @override
   void dispose() {
     _puntosSubscription?.cancel();
+    _zonasSubscription?.cancel();
     _ubicacionSubscription?.cancel();
     _mapController.dispose();
     super.dispose();
@@ -143,37 +156,148 @@ class _MapaPageState extends State<MapaPage> {
   }
 
   void _escucharPuntos() {
-    // Consulta inicial sencilla; en producción conviene reemplazarla por
-    // búsquedas geoespaciales paginadas con geohashes.
+    // Consulta sencilla sin plugins geoespaciales incompatibles.
+    // Filtra por kilometraje en el dispositivo (hasta 300 documentos).
+    // Para escala mayor, implementar consulta por geohash sin cambiar Firestore.
     _puntosSubscription = FirebaseFirestore.instance
         .collection('puntos_mapa')
         .limit(300)
         .snapshots()
-        .listen((snapshot) {
-      final puntos = <PuntoEco>[];
-      for (final documento in snapshot.docs) {
-        try {
-          puntos.add(PuntoEco.desdeDocumento(documento));
-        } catch (_) {
-          // Ignorar temporalmente documentos incompletos o mal formados.
-        }
+        .listen(
+          (snapshot) {
+            final puntos = <PuntoEco>[];
+            for (final documento in snapshot.docs) {
+              try {
+                puntos.add(PuntoEco.desdeDocumento(documento));
+              } catch (_) {
+                // Ignorar temporalmente documentos incompletos o mal formados.
+              }
+            }
+            if (!mounted) return;
+            setState(() {
+              _puntos = puntos;
+              _errorFirestore = null;
+            });
+            _verificarPuntosCercanos();
+          },
+          onError: (Object error) {
+            if (mounted) setState(() => _errorFirestore = error.toString());
+          },
+        );
+  }
+
+  void _escucharZonas() {
+    _zonasSubscription = FirebaseFirestore.instance
+        .collection('zonas_criticas')
+        .limit(150)
+        .snapshots()
+        .listen(
+          (snapshot) {
+            final nuevas = <ZonaCritica>[];
+            for (final doc in snapshot.docs) {
+              try {
+                nuevas.add(ZonaCritica.fromDoc(doc));
+              } catch (_) {
+                /* Una zona incompleta no debe bloquear el mapa. */
+              }
+            }
+            if (mounted) setState(() => _zonas = nuevas);
+          },
+          onError: (Object e) {
+            if (mounted)
+              _mensaje('No se pudieron cargar las zonas críticas: $e');
+          },
+        );
+  }
+
+  void _mostrarZona(ZonaCritica zona) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Zona de concentración de reportes',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Text('${zona.cantidadReportes} reportes sucios cercanos'),
+              Text('Prioridad orientativa: ${zona.prioridad}'),
+              Text('Radio estimado: ${zona.radioMetros.round()} metros'),
+              const SizedBox(height: 10),
+              const Text(
+                'Detectada con DBSCAN. La prioridad se basa en la cantidad '
+                'de reportes, no es una predicción de contaminación.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _abrirEscanerQr() async {
+    final id = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const EscanearPuntoPage()),
+    );
+    if (id == null || !mounted) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('puntos_mapa')
+          .doc(id)
+          .get();
+      if (!doc.exists) {
+        _mensaje('El punto del QR ya no existe.');
+        return;
       }
-      if (!mounted) return;
-      setState(() {
-        _puntos = puntos;
-        _errorFirestore = null;
-      });
-      _verificarPuntosCercanos();
-    }, onError: (Object error) {
-      if (mounted) setState(() => _errorFirestore = error.toString());
-    });
+      final punto = PuntoEco.desdeDocumento(doc);
+      _mapController.move(punto.ubicacion, 16);
+      if (mounted) _mostrarPunto(punto);
+    } catch (e) {
+      _mensaje('No fue posible abrir el punto: $e');
+    }
+  }
+
+  Future<void> _desactivarPushCercano() async {
+    try {
+      await NotificacionesPush().desactivar();
+      _mensaje('Preferencias push de este dispositivo eliminadas.');
+    } catch (e) {
+      _mensaje('No fue posible desactivar las alertas push: $e');
+    }
+  }
+
+  Future<void> _activarPushCercano() async {
+    final origen = _miUbicacion;
+    if (origen == null) {
+      _mensaje('Primero debes activar tu ubicación.');
+      return;
+    }
+    try {
+      final ok = await NotificacionesPush().activar(
+        lat: origen.latitude,
+        lon: origen.longitude,
+        radioKm: _radioKm,
+      );
+      _mensaje(
+        ok
+            ? 'Avisos push registrados para Android. Requieren ejecutar el servidor de envíos.'
+            : 'Debes iniciar sesión y conceder permiso de notificaciones en Android.',
+      );
+    } catch (e) {
+      _mensaje('No se pudieron activar los avisos push: $e');
+    }
   }
 
   void _mensaje(String texto) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(texto)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texto)));
   }
 
   Future<bool> _obtenerUbicacion() async {
@@ -206,14 +330,15 @@ class _MapaPageState extends State<MapaPage> {
 
       // Actualizamos la posición mientras la pantalla está abierta.
       await _ubicacionSubscription?.cancel();
-      _ubicacionSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 50,
-        ),
-      ).listen((position) {
-        if (mounted) _actualizarUbicacion(position);
-      });
+      _ubicacionSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 50,
+            ),
+          ).listen((position) {
+            if (mounted) _actualizarUbicacion(position);
+          });
       return true;
     } catch (e) {
       _mensaje('No fue posible obtener tu ubicación: $e');
@@ -243,17 +368,19 @@ class _MapaPageState extends State<MapaPage> {
   }
 
   List<PuntoEco> get _puntosVisibles => _puntos.where((punto) {
-        if (_miUbicacion == null) return true;
-        return _distanciaKm(punto.ubicacion) <= _radioKm;
-      }).toList();
+    if (_miUbicacion == null) return true;
+    return _distanciaKm(punto.ubicacion) <= _radioKm;
+  }).toList();
 
   Future<void> _habilitarNotificaciones() async {
     final concedido = await _alertas.solicitarPermiso();
     if (!mounted) return;
     setState(() => _alertasActivadas = concedido);
-    _mensaje(concedido
-        ? 'Avisos cercanos activados mientras tengas abierto el mapa.'
-        : 'No se activaron las notificaciones de Android.');
+    _mensaje(
+      concedido
+          ? 'Avisos cercanos activados mientras tengas abierto el mapa.'
+          : 'No se activaron las notificaciones de Android.',
+    );
     _verificarPuntosCercanos();
   }
 
@@ -299,15 +426,18 @@ class _MapaPageState extends State<MapaPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('¿Dónde agregarás el punto?',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                '¿Dónde agregarás el punto?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 12),
               ListTile(
                 leading: const Icon(Icons.my_location, color: _verde),
                 title: const Text('Usar mi ubicación actual'),
                 onTap: () async {
                   Navigator.of(context).pop();
-                  if (_miUbicacion == null && !await _obtenerUbicacion()) return;
+                  if (_miUbicacion == null && !await _obtenerUbicacion())
+                    return;
                   if (mounted && _miUbicacion != null) {
                     _abrirFormulario(_miUbicacion!);
                   }
@@ -367,9 +497,13 @@ class _MapaPageState extends State<MapaPage> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text('Publicar punto en el mapa',
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Text(
+                        'Publicar punto en el mapa',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<TipoPunto>(
                         initialValue: tipo,
@@ -378,10 +512,12 @@ class _MapaPageState extends State<MapaPage> {
                           border: OutlineInputBorder(),
                         ),
                         items: TipoPunto.values
-                            .map((item) => DropdownMenuItem(
-                                  value: item,
-                                  child: Text(item.etiqueta),
-                                ))
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item,
+                                child: Text(item.etiqueta),
+                              ),
+                            )
                             .toList(),
                         onChanged: guardando
                             ? null
@@ -460,8 +596,8 @@ class _MapaPageState extends State<MapaPage> {
                           onChanged: guardando
                               ? null
                               : (value) => cambiarEstado(
-                                    () => compartirFoto = value ?? false,
-                                  ),
+                                  () => compartirFoto = value ?? false,
+                                ),
                         ),
                       ],
                       const SizedBox(height: 12),
@@ -500,43 +636,48 @@ class _MapaPageState extends State<MapaPage> {
                                     // Solo publicar la foto si el creador
                                     // lo autorizó explícitamente.
                                     if (compartirFoto) {
-                                      liderFotoUrl =
-                                          (data['fotoUrl'] ?? '').toString();
+                                      liderFotoUrl = (data['fotoUrl'] ?? '')
+                                          .toString();
                                     }
                                   }
                                   await FirebaseFirestore.instance
                                       .collection('puntos_mapa')
                                       .add({
-                                    'tipo': tipo.name,
-                                    'nombre': nombre.text.trim(),
-                                    'direccion': direccion.text.trim(),
-                                    'descripcion': descripcion.text.trim(),
-                                    'ubicacion': GeoPoint(
-                                      ubicacion.latitude,
-                                      ubicacion.longitude,
-                                    ),
-                                    'creadorUid': usuario.uid,
-                                    'liderNombre': tipo == TipoPunto.brigada
-                                        ? liderNombre
-                                        : '',
-                                    'liderFotoUrl': tipo == TipoPunto.brigada
-                                        ? liderFotoUrl
-                                        : '',
-                                    'cantidadParticipantes':
-                                        tipo == TipoPunto.brigada
+                                        'tipo': tipo.name,
+                                        'nombre': nombre.text.trim(),
+                                        'direccion': direccion.text.trim(),
+                                        'descripcion': descripcion.text.trim(),
+                                        'ubicacion': GeoPoint(
+                                          ubicacion.latitude,
+                                          ubicacion.longitude,
+                                        ),
+                                        'creadorUid': usuario.uid,
+                                        'liderNombre': tipo == TipoPunto.brigada
+                                            ? liderNombre
+                                            : '',
+                                        'liderFotoUrl':
+                                            tipo == TipoPunto.brigada
+                                            ? liderFotoUrl
+                                            : '',
+                                        'cantidadParticipantes':
+                                            tipo == TipoPunto.brigada
                                             ? int.parse(participantes.text)
                                             : 0,
-                                    'creadoEn': FieldValue.serverTimestamp(),
-                                  });
+                                        'creadoEn':
+                                            FieldValue.serverTimestamp(),
+                                      });
                                   if (!contextoHoja.mounted) return;
                                   Navigator.pop(contextoHoja);
                                   _mensaje('Punto publicado correctamente.');
                                 } catch (e) {
                                   if (contextoHoja.mounted) {
-                                    ScaffoldMessenger.of(contextoHoja)
-                                        .showSnackBar(SnackBar(
-                                      content: Text('No se pudo guardar: $e'),
-                                    ));
+                                    ScaffoldMessenger.of(
+                                      contextoHoja,
+                                    ).showSnackBar(
+                                      SnackBar(
+                                        content: Text('No se pudo guardar: $e'),
+                                      ),
+                                    );
                                     cambiarEstado(() => guardando = false);
                                   }
                                 }
@@ -582,12 +723,17 @@ class _MapaPageState extends State<MapaPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(punto.nombre,
-                              style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold)),
-                          Text(punto.tipo.etiqueta,
-                              style: TextStyle(color: punto.tipo.color)),
+                          Text(
+                            punto.nombre,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            punto.tipo.etiqueta,
+                            style: TextStyle(color: punto.tipo.color),
+                          ),
                         ],
                       ),
                     ),
@@ -616,9 +762,11 @@ class _MapaPageState extends State<MapaPage> {
                           : null,
                     ),
                     title: const Text('Líder de brigada'),
-                    subtitle: Text(punto.liderNombre.isEmpty
-                        ? 'No especificado'
-                        : punto.liderNombre),
+                    subtitle: Text(
+                      punto.liderNombre.isEmpty
+                          ? 'No especificado'
+                          : punto.liderNombre,
+                    ),
                   ),
                   ListTile(
                     leading: const Icon(Icons.groups_outlined),
@@ -626,6 +774,18 @@ class _MapaPageState extends State<MapaPage> {
                     subtitle: Text('${punto.cantidadParticipantes} personas'),
                   ),
                 ],
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.qr_code_2),
+                  label: const Text('Mostrar QR de este punto'),
+                  onPressed: () => Navigator.of(contextoHoja).push(
+                    MaterialPageRoute(
+                      builder: (_) => CodigoQrPuntoPage(
+                        puntoId: punto.id,
+                        nombre: punto.nombre,
+                      ),
+                    ),
+                  ),
+                ),
                 ListTile(
                   leading: const Icon(Icons.gps_fixed),
                   title: const Text('Ubicación exacta'),
@@ -635,8 +795,7 @@ class _MapaPageState extends State<MapaPage> {
                   ),
                 ),
                 if (punto.tipo == TipoPunto.sucio &&
-                    punto.creadorUid ==
-                        FirebaseAuth.instance.currentUser?.uid)
+                    punto.creadorUid == FirebaseAuth.instance.currentUser?.uid)
                   OutlinedButton.icon(
                     onPressed: () async {
                       try {
@@ -662,27 +821,25 @@ class _MapaPageState extends State<MapaPage> {
   }
 
   Marker _marcador(PuntoEco punto) => Marker(
-        point: punto.ubicacion,
-        width: 52,
-        height: 52,
-        child: Tooltip(
-          message: punto.nombre,
-          child: InkWell(
-            onTap: () => _mostrarPunto(punto),
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: punto.tipo.color,
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: const [
-                  BoxShadow(blurRadius: 5, color: Colors.black26),
-                ],
-              ),
-              child: Icon(punto.tipo.icono, color: Colors.white),
-            ),
+    point: punto.ubicacion,
+    width: 52,
+    height: 52,
+    child: Tooltip(
+      message: punto.nombre,
+      child: InkWell(
+        onTap: () => _mostrarPunto(punto),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: punto.tipo.color,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: const [BoxShadow(blurRadius: 5, color: Colors.black26)],
           ),
+          child: Icon(punto.tipo.icono, color: Colors.white),
         ),
-      );
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -714,6 +871,21 @@ class _MapaPageState extends State<MapaPage> {
                     // actualízalo cuando cambies el applicationId.
                     userAgentPackageName: 'com.example.mi_app',
                   ),
+                  if (_verZonas && _zonas.isNotEmpty)
+                    CircleLayer(
+                      circles: _zonas
+                          .map(
+                            (zona) => CircleMarker(
+                              point: zona.centro,
+                              radius: zona.radioMetros,
+                              useRadiusInMeter: true,
+                              color: Colors.red.withValues(alpha: 0.17),
+                              borderColor: Colors.deepOrange,
+                              borderStrokeWidth: 2.0,
+                            ),
+                          )
+                          .toList(),
+                    ),
                   if (_miUbicacion != null)
                     CircleLayer(
                       circles: [
@@ -730,6 +902,23 @@ class _MapaPageState extends State<MapaPage> {
                   MarkerLayer(
                     markers: [
                       ...visibles.map(_marcador),
+                      if (_verZonas)
+                        ..._zonas.map(
+                          (zona) => Marker(
+                            point: zona.centro,
+                            width: 52,
+                            height: 52,
+                            child: IconButton.filled(
+                              tooltip:
+                                  'Zona DBSCAN: ${zona.cantidadReportes} reportes',
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.deepOrange,
+                              ),
+                              onPressed: () => _mostrarZona(zona),
+                              icon: const Icon(Icons.analytics_outlined),
+                            ),
+                          ),
+                        ),
                       if (_miUbicacion != null)
                         Marker(
                           point: _miUbicacion!,
@@ -741,8 +930,7 @@ class _MapaPageState extends State<MapaPage> {
                               color: Colors.blue,
                               border: Border.all(color: Colors.white, width: 4),
                               boxShadow: const [
-                                BoxShadow(
-                                    color: Colors.black26, blurRadius: 5),
+                                BoxShadow(color: Colors.black26, blurRadius: 5),
                               ],
                             ),
                           ),
@@ -761,14 +949,25 @@ class _MapaPageState extends State<MapaPage> {
                       spacing: 10,
                       runSpacing: 7,
                       children: [
+                        FilterChip(
+                          label: Text('Zonas ML (${_zonas.length})'),
+                          avatar: const Icon(
+                            Icons.analytics_outlined,
+                            size: 17,
+                          ),
+                          selected: _verZonas,
+                          onSelected: (v) => setState(() => _verZonas = v),
+                        ),
                         for (final tipo in TipoPunto.values)
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(tipo.icono, size: 17, color: tipo.color),
                               const SizedBox(width: 4),
-                              Text(tipo.etiqueta,
-                                  style: const TextStyle(fontSize: 11)),
+                              Text(
+                                tipo.etiqueta,
+                                style: const TextStyle(fontSize: 11),
+                              ),
                             ],
                           ),
                       ],
@@ -794,9 +993,49 @@ class _MapaPageState extends State<MapaPage> {
                       heroTag: 'notificaciones_ecobrigada',
                       tooltip: 'Activar avisos cercanos en Android',
                       onPressed: _habilitarNotificaciones,
-                      child: Icon(_alertasActivadas
-                          ? Icons.notifications_active
-                          : Icons.notifications_outlined),
+                      child: Icon(
+                        _alertasActivadas
+                            ? Icons.notifications_active
+                            : Icons.notifications_outlined,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert),
+                      tooltip: 'Herramientas del mapa',
+                      onSelected: (value) async {
+                        if (value == 'estadisticas') {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ImpactoPage(),
+                            ),
+                          );
+                        } else if (value == 'qr') {
+                          await _abrirEscanerQr();
+                        } else if (value == 'push') {
+                          await _activarPushCercano();
+                        } else if (value == 'stop_push') {
+                          await _desactivarPushCercano();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'estadisticas',
+                          child: Text('Estadísticas ambientales'),
+                        ),
+                        PopupMenuItem(
+                          value: 'qr',
+                          child: Text('Escanear QR de un punto'),
+                        ),
+                        PopupMenuItem(
+                          value: 'push',
+                          child: Text('Activar avisos push (Android)'),
+                        ),
+                        PopupMenuItem(
+                          value: 'stop_push',
+                          child: Text('Desactivar avisos push'),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 10),
                     FloatingActionButton.small(
@@ -820,8 +1059,10 @@ class _MapaPageState extends State<MapaPage> {
                     color: Colors.white.withValues(alpha: 0.9),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text('© OpenStreetMap contributors',
-                      style: TextStyle(fontSize: 11)),
+                  child: const Text(
+                    '© OpenStreetMap contributors',
+                    style: TextStyle(fontSize: 11),
+                  ),
                 ),
               ),
               if (_seleccionandoEnMapa)
@@ -840,9 +1081,8 @@ class _MapaPageState extends State<MapaPage> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            onPressed: () => setState(
-                              () => _seleccionandoEnMapa = false,
-                            ),
+                            onPressed: () =>
+                                setState(() => _seleccionandoEnMapa = false),
                           ),
                         ],
                       ),
@@ -875,11 +1115,11 @@ class _MapaPageState extends State<MapaPage> {
                   children: [
                     const Icon(Icons.radar, color: _verde),
                     const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text('Radio de puntos cercanos'),
+                    const Expanded(child: Text('Radio de puntos cercanos')),
+                    Text(
+                      '${_radioKm.round()} km',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    Text('${_radioKm.round()} km',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
                   ],
                 ),
                 Slider(

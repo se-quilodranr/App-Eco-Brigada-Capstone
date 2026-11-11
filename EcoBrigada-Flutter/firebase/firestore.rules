@@ -1,0 +1,332 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =====================================
+    // 1. PUBLICACIONES (Y SUBCOLECCIONES)
+    // =====================================
+    match /publicaciones/{publicacionId} {
+      // El feed es público; los lectores sin cuenta pueden ver las guías.
+      allow get, list: if true;
+
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly([
+          'titulo', 'descripcion', 'materiales', 'pasos', 'fotos',
+          'autorUid', 'autorNombre', 'creadoEn'
+        ])
+        && request.resource.data.keys().hasAll([
+          'titulo', 'descripcion', 'materiales', 'pasos', 'fotos',
+          'autorUid', 'autorNombre', 'creadoEn'
+        ])
+        && request.resource.data.autorUid == request.auth.uid
+        && request.resource.data.autorNombre is string
+        && request.resource.data.autorNombre.size() >= 1
+        && request.resource.data.autorNombre.size() <= 100
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() >= 3
+        && request.resource.data.titulo.size() <= 90
+        && request.resource.data.descripcion is string
+        && request.resource.data.descripcion.size() >= 10
+        && request.resource.data.descripcion.size() <= 600
+        && request.resource.data.materiales is string
+        && request.resource.data.materiales.size() >= 3
+        && request.resource.data.materiales.size() <= 400
+        && request.resource.data.pasos is list
+        && request.resource.data.pasos.size() >= 1
+        && request.resource.data.pasos.size() <= 12
+        && request.resource.data.fotos is list
+        && request.resource.data.fotos.size() >= 1
+        && request.resource.data.fotos.size() <= 8
+        && request.resource.data.creadoEn == request.time;
+
+      allow update, delete: if false;
+
+      // Likes de la publicación
+      match /likes/{uid} {
+        allow get, list: if true;
+        allow create: if request.auth != null
+          && request.auth.uid == uid
+          && exists(/databases/$(database)/documents/publicaciones/$(publicacionId))
+          && request.resource.data.keys().hasOnly(['uid', 'creadoEn'])
+          && request.resource.data.keys().hasAll(['uid', 'creadoEn'])
+          && request.resource.data.uid == uid
+          && request.resource.data.creadoEn == request.time;
+        allow delete: if request.auth != null && request.auth.uid == uid;
+        allow update: if false;
+      }
+
+      // Comentarios de la publicación
+      match /comentarios/{comentarioId} {
+        allow get, list: if true;
+        allow create: if request.auth != null
+          && exists(/databases/$(database)/documents/publicaciones/$(publicacionId))
+          && request.resource.data.keys().hasOnly([
+            'autorUid', 'autorNombre', 'texto', 'creadoEn'
+          ])
+          && request.resource.data.keys().hasAll([
+            'autorUid', 'autorNombre', 'texto', 'creadoEn'
+          ])
+          && request.resource.data.autorUid == request.auth.uid
+          && request.resource.data.autorNombre is string
+          && request.resource.data.autorNombre.size() >= 1
+          && request.resource.data.autorNombre.size() <= 100
+          && request.resource.data.texto is string
+          && request.resource.data.texto.size() >= 1
+          && request.resource.data.texto.size() <= 500
+          && request.resource.data.creadoEn == request.time;
+        allow update, delete: if false;
+      }
+
+      // Reportes de la publicación
+      match /reportes/{uid} {
+        allow get: if request.auth != null && request.auth.uid == uid;
+        allow list: if false;
+        allow create: if request.auth != null
+          && request.auth.uid == uid
+          && exists(/databases/$(database)/documents/publicaciones/$(publicacionId))
+          && get(/databases/$(database)/documents/publicaciones/$(publicacionId)).data.autorUid != uid
+          && request.resource.data.keys().hasOnly([
+            'autorUid', 'motivo', 'creadoEn'
+          ])
+          && request.resource.data.keys().hasAll([
+            'autorUid', 'motivo', 'creadoEn'
+          ])
+          && request.resource.data.autorUid == uid
+          && request.resource.data.motivo in [
+            'Contenido no relacionado con reciclaje',
+            'Lenguaje ofensivo',
+            'Spam o publicidad',
+            'Información falsa o peligrosa',
+            'Otro'
+          ]
+          && request.resource.data.creadoEn == request.time;
+        allow update, delete: if false;
+      }
+    }
+
+    // =====================================
+    // 2. USUARIOS
+    // =====================================
+    match /usuarios/{userId} {
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid;
+
+      allow read, update, delete: if request.auth != null
+        && request.auth.uid == userId;
+
+      // Preferencias privadas de avisos push. Solo las lee su dueño.
+      // Los procesos administrativos usan Admin SDK y no requieren reglas de cliente.
+      match /dispositivos/{deviceId} {
+        function propietario() {
+          return request.auth != null && request.auth.uid == userId;
+        }
+        function datosValidos() {
+          return request.resource.data.keys().hasOnly([
+            'token', 'ubicacion', 'radioKm', 'plataforma', 'actualizadoEn'
+          ])
+          && request.resource.data.keys().hasAll([
+            'token', 'ubicacion', 'radioKm', 'plataforma', 'actualizadoEn'
+          ])
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 20
+          && request.resource.data.token.size() < 4096
+          && request.resource.data.ubicacion is latlng
+          && request.resource.data.radioKm is number
+          && request.resource.data.radioKm >= 1
+          && request.resource.data.radioKm <= 20
+          && request.resource.data.plataforma == 'android'
+          && request.resource.data.actualizadoEn == request.time;
+        }
+        allow read: if propietario();
+        allow create, update: if propietario() && datosValidos();
+        allow delete: if propietario();
+      }
+    }
+
+    // =====================================
+    // 3. BRIGADAS (Y CHAT)
+    // =====================================
+    match /brigadas/{brigadaId} {
+      // Consulta pública
+      allow read: if true;
+
+      // Crear brigadas
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasAll([
+          'nombre',
+          'comuna',
+          'creadorUid',
+          'creadorNombre',
+          'fechaCreacion'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'nombre',
+          'comuna',
+          'creadorUid',
+          'creadorNombre',
+          'fechaCreacion',
+          'participantes'
+        ])
+        && request.resource.data.creadorUid == request.auth.uid
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.comuna is string
+        && request.resource.data.comuna.size() > 0
+        && request.resource.data.creadorNombre is string
+        && request.resource.data.fechaCreacion == request.time
+        && (
+          !('participantes' in request.resource.data)
+          ||
+          (
+            request.resource.data.participantes is list
+            && request.resource.data.participantes.size() == 1
+            && request.resource.data.participantes[0] == request.auth.uid
+          )
+        );
+
+      // Unirse a una brigada
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(['participantes'])
+        && request.resource.data.participantes is list
+        && request.resource.data.participantes.size()
+          == resource.data.get('participantes', []).size() + 1
+        && request.resource.data.participantes.hasAll(
+          resource.data.get('participantes', [])
+        )
+        && request.auth.uid in request.resource.data.participantes
+        && !(request.auth.uid in resource.data.get('participantes', []));
+
+      allow delete: if false;
+
+      // Chat de la brigada
+      match /mensajes/{mensajeId} {
+        function esMiembro() {
+          let brigada = get(
+            /databases/$(database)/documents/brigadas/$(brigadaId)
+          ).data;
+
+          return request.auth != null
+            && (
+              request.auth.uid == brigada.creadorUid
+              ||
+              request.auth.uid in brigada.get('participantes', [])
+            );
+        }
+
+        allow read: if esMiembro();
+
+        allow create: if esMiembro()
+          && request.resource.data.keys().hasAll([
+            'texto',
+            'uid',
+            'nombre',
+            'fechaEnvio'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'texto',
+            'uid',
+            'nombre',
+            'fechaEnvio'
+          ])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.texto is string
+          && request.resource.data.texto.size() > 0
+          && request.resource.data.texto.size() <= 500
+          && request.resource.data.nombre is string
+          && request.resource.data.nombre.size() > 0
+          && request.resource.data.fechaEnvio == request.time;
+
+        allow update, delete: if false;
+      }
+    }
+
+    // =====================================
+    // 4. ZONAS CRÍTICAS: generadas por el proceso ML con Admin SDK
+    // =====================================
+    match /zonas_criticas/{zonaId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    // Auditoria interna de avisos push. No accesible desde Flutter.
+    match /avisos_enviados/{id} {
+      allow read, write: if false;
+    }
+
+    // =====================================
+    // 5. PUNTOS DEL MAPA
+    // =====================================
+    match /puntos_mapa/{id} {
+      // Son fichas públicas; no publiques coordenadas de domicilios privados
+      // o datos personales sin consentimiento.
+      allow read: if true;
+
+      function autenticado() {
+        return request.auth != null;
+      }
+
+      function administrador() {
+        return autenticado() && request.auth.token.admin == true;
+      }
+
+      function camposValidos() {
+        return request.resource.data.keys().hasOnly([
+          'tipo', 'nombre', 'direccion', 'descripcion', 'ubicacion',
+          'creadorUid', 'liderNombre', 'liderFotoUrl',
+          'cantidadParticipantes', 'creadoEn', 'geo'
+        ])
+        && request.resource.data.keys().hasAll([
+          'tipo', 'nombre', 'direccion', 'descripcion', 'ubicacion',
+          'creadorUid', 'liderNombre', 'liderFotoUrl',
+          'cantidadParticipantes', 'creadoEn'
+        ])
+        && request.resource.data.tipo in ['reciclaje', 'sucio', 'brigada', 'limpiado']
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 90
+        && request.resource.data.direccion is string
+        && request.resource.data.direccion.size() > 0
+        && request.resource.data.direccion.size() <= 180
+        && request.resource.data.descripcion is string
+        && request.resource.data.descripcion.size() > 0
+        && request.resource.data.descripcion.size() <= 500
+        && request.resource.data.ubicacion is latlng
+        && request.resource.data.cantidadParticipantes is int
+        && request.resource.data.cantidadParticipantes >= 0
+        && request.resource.data.cantidadParticipantes <= 10000
+        && request.resource.data.creadorUid is string
+        && request.resource.data.liderNombre is string
+        && request.resource.data.liderFotoUrl is string
+        && request.resource.data.creadoEn is timestamp
+        // Compatibilidad con puntos antiguos sin geohash.
+        && (!('geo' in request.resource.data) || (
+          request.resource.data.geo is map
+          && request.resource.data.geo.geohash is string
+          && request.resource.data.geo.geohash.size() >= 5
+          && request.resource.data.geo.geohash.size() <= 12
+          && request.resource.data.geo.geopoint is latlng
+          && request.resource.data.geo.geopoint == request.resource.data.ubicacion
+        ));
+      }
+
+      allow create: if autenticado()
+        && request.resource.data.creadorUid == request.auth.uid
+        && camposValidos();
+
+      // En este MVP, el creador solo puede pasar un punto sucio a limpiado.
+      // Para administración general usa una claim admin asignada en el servidor.
+      allow update: if administrador() && camposValidos()
+        || (autenticado()
+          && request.auth.uid == resource.data.creadorUid
+          && resource.data.tipo == 'sucio'
+          && request.resource.data.tipo == 'limpiado'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tipo']));
+
+      allow delete: if administrador();
+    }
+
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "demo": true,
+  "generadoEn": "2026-11-11T22:29:09.184272+00:00",
+  "cantidadReportes": 8,
+  "epsMetros": 250,
+  "minSamples": 3,
+  "zonas": [
+    {
+      "id": "e641e05daac165f31559",
+      "centroLat": -36.826025,
+      "centroLon": -73.049125,
+      "radioMetros": 82,
+      "cantidadReportes": 4,
+      "prioridad": "inicial",
+      "idsReportes": [
+        "demo-a1",
+        "demo-a2",
+        "demo-a3",
+        "demo-a4"
+      ],
+      "algoritmo": "DBSCAN-haversine"
+    },
+    {
+      "id": "590d592211b737028078",
+      "centroLat": -36.8351,
+      "centroLon": -73.0580667,
+      "radioMetros": 83,
+      "cantidadReportes": 3,
+      "prioridad": "inicial",
+      "idsReportes": [
+        "demo-b1",
+        "demo-b2",
+        "demo-b3"
+      ],
+      "algoritmo": "DBSCAN-haversine"
+    }
+  ]
+}
