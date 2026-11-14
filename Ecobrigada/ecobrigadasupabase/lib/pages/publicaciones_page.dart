@@ -12,13 +12,20 @@ class PublicacionesPage extends StatefulWidget {
 
 class _PublicacionesPageState extends State<PublicacionesPage> {
   late Future<List<Map<String, dynamic>>> future;
+
   @override
   void initState() {
     super.initState();
-    actualizar();
+    future = Api.publicaciones();
   }
 
-  void actualizar() => setState(() => future = Api.publicaciones());
+  void actualizar() {
+    if (!mounted) return;
+
+    setState(() {
+      future = Api.publicaciones();
+    });
+  }
 
   Future<void> crear() async {
     if (!await asegurarSesion(context)) return;
@@ -104,12 +111,20 @@ class _PublicacionesPageState extends State<PublicacionesPage> {
                     return Card(
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: () => Navigator.push(
-                          ctx,
-                          MaterialPageRoute(
-                            builder: (_) => PublicacionDetallePage(post: p),
-                          ),
-                        ),
+                        onTap: () async {
+                          await Navigator.push(
+                            ctx,
+                            MaterialPageRoute(
+                              builder: (_) => PublicacionDetallePage(post: p),
+                            ),
+                          );
+
+                          // Al regresar, volver a consultar Supabase.
+                          if (mounted) {
+                            actualizar();
+                          }
+                        },
+
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -370,8 +385,10 @@ class _PublicacionDetallePageState extends State<PublicacionDetallePage> {
     recargarComentarios();
   }
 
-  void recargarComentarios() =>
-      comentarios = Api.comentarios(widget.post['id'].toString());
+  void recargarComentarios() {
+    comentarios = Api.comentarios(widget.post['id'].toString());
+  }
+
   @override
   void dispose() {
     textoComentario.dispose();

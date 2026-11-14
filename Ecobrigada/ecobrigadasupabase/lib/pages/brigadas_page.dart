@@ -15,13 +15,20 @@ class BrigadasPage extends StatefulWidget {
 class _BrigadasPageState extends State<BrigadasPage> {
   late Future<List<Map<String, dynamic>>> future;
   String filtro = '';
+
   @override
   void initState() {
     super.initState();
-    refrescar();
+    future = Api.brigadas();
   }
 
-  void refrescar() => setState(() => future = Api.brigadas());
+  void refrescar() {
+    if (!mounted) return;
+
+    setState(() {
+      future = Api.brigadas();
+    });
+  }
 
   Future<void> nuevaBrigada() async {
     if (!await asegurarSesion(context)) return;
@@ -356,131 +363,50 @@ class _BrigadaDetallePageState extends State<BrigadaDetallePage> {
   }
 
   Future<void> crearActividad() async {
-    final titulo = TextEditingController();
-    final descripcion = TextEditingController();
-    LatLng? ubicacion;
-    DateTime fecha = DateTime.now().add(const Duration(days: 1));
     final datos = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialog) => StatefulBuilder(
-        builder: (ctx, cambiar) => AlertDialog(
-          title: const Text('Organizar actividad'),
-          content: SizedBox(
-            width: 440,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titulo,
-                    maxLength: 150,
-                    decoration: const InputDecoration(
-                      labelText: 'Nombre de la actividad',
-                    ),
-                  ),
-                  TextField(
-                    controller: descripcion,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: '¿Qué harán?'),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final p = await Navigator.push<LatLng>(
-                        ctx,
-                        MaterialPageRoute(
-                          builder: (_) => const ElegirUbicacionPage(),
-                        ),
-                      );
-                      if (ctx.mounted && p != null) {
-                        cambiar(() => ubicacion = p);
-                      }
-                    },
-                    icon: const Icon(Icons.place),
-                    label: Text(
-                      ubicacion == null
-                          ? 'Seleccionar lugar en mapa'
-                          : 'Ubicación elegida ✓',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final dia = await showDatePicker(
-                        context: ctx,
-                        initialDate: fecha,
-                        firstDate: DateTime.now().subtract(
-                          const Duration(days: 1),
-                        ),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (dia == null || !ctx.mounted) return;
-                      final hora = await showTimePicker(
-                        context: ctx,
-                        initialTime: TimeOfDay.fromDateTime(fecha),
-                      );
-                      if (!ctx.mounted || hora == null) return;
-                      cambiar(
-                        () => fecha = DateTime(
-                          dia.year,
-                          dia.month,
-                          dia.day,
-                          hora.hour,
-                          hora.minute,
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.event),
-                    label: Text(
-                      'Inicio: ${fecha.day}/${fecha.month} ${fecha.hour.toString().padLeft(2, '0')}:${fecha.minute.toString().padLeft(2, '0')}',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, {
-                'titulo': titulo.text,
-                'descripcion': descripcion.text,
-                'ubicacion': ubicacion,
-                'fecha': fecha,
-              }),
-              child: const Text('Crear actividad'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => const _CrearActividadDialog(),
     );
-    titulo.dispose();
-    descripcion.dispose();
+
     if (!mounted || datos == null) return;
-    if ((datos['titulo'] as String).trim().length < 3 ||
-        datos['ubicacion'] == null) {
+
+    final titulo = (datos['titulo'] as String).trim();
+    final descripcion = (datos['descripcion'] as String).trim();
+    final ubicacion = datos['ubicacion'] as LatLng?;
+    final fecha = datos['fecha'] as DateTime;
+
+    if (titulo.length < 3 || ubicacion == null) {
       mostrarError(
         context,
-        'Escribe un título y selecciona el lugar en el mapa',
+        'Escribe un título y selecciona un lugar en el mapa',
       );
       return;
     }
-    final p = datos['ubicacion'] as LatLng;
+
     try {
       await Api.crearActividad(
         brigadaId: widget.brigadaId,
-        titulo: datos['titulo'] as String,
-        descripcion: datos['descripcion'] as String,
-        lat: p.latitude,
-        lon: p.longitude,
-        inicio: datos['fecha'] as DateTime,
+        titulo: titulo,
+        descripcion: descripcion,
+        lat: ubicacion.latitude,
+        lon: ubicacion.longitude,
+        inicio: fecha,
       );
+
+      if (!mounted) return;
+
+      // Recarga las actividades inmediatamente.
       await cargar();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Actividad creada correctamente')),
+      );
     } catch (e) {
-      if (mounted) mostrarError(context, e);
+      if (mounted) {
+        mostrarError(context, e);
+      }
     }
   }
 
@@ -730,3 +656,169 @@ class _BrigadaDetallePageState extends State<BrigadaDetallePage> {
     );
   }
 }
+
+class _CrearActividadDialog extends StatefulWidget {
+  const _CrearActividadDialog();
+
+  @override
+  State<_CrearActividadDialog> createState() =>
+      _CrearActividadDialogState();
+}
+
+class _CrearActividadDialogState
+    extends State<_CrearActividadDialog> {
+  final titulo = TextEditingController();
+  final descripcion = TextEditingController();
+
+  LatLng? ubicacion;
+  DateTime fecha = DateTime.now().add(
+    const Duration(days: 1),
+  );
+
+  @override
+  void dispose() {
+    titulo.dispose();
+    descripcion.dispose();
+    super.dispose();
+  }
+
+  Future<void> seleccionarUbicacion() async {
+    FocusScope.of(context).unfocus();
+
+    final p = await Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ElegirUbicacionPage(),
+      ),
+    );
+
+    if (!mounted || p == null) return;
+
+    setState(() {
+      ubicacion = p;
+    });
+  }
+
+  Future<void> seleccionarFecha() async {
+    FocusScope.of(context).unfocus();
+
+    final dia = await showDatePicker(
+      context: context,
+      initialDate: fecha,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(
+        const Duration(days: 365),
+      ),
+    );
+
+    if (!mounted || dia == null) return;
+
+    final hora = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(fecha),
+    );
+
+    if (!mounted || hora == null) return;
+
+    setState(() {
+      fecha = DateTime(
+        dia.year,
+        dia.month,
+        dia.day,
+        hora.hour,
+        hora.minute,
+      );
+    });
+  }
+
+  void guardar() {
+    FocusScope.of(context).unfocus();
+
+    if (titulo.text.trim().length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Escribe un título válido'),
+        ),
+      );
+      return;
+    }
+
+    if (ubicacion == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecciona una ubicación'),
+        ),
+      );
+      return;
+    }
+
+    Navigator.pop(context, {
+      'titulo': titulo.text,
+      'descripcion': descripcion.text,
+      'ubicacion': ubicacion,
+      'fecha': fecha,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Organizar actividad'),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titulo,
+                maxLength: 150,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre de la actividad',
+                ),
+              ),
+              TextField(
+                controller: descripcion,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '¿Qué harán?',
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: seleccionarUbicacion,
+                icon: const Icon(Icons.place),
+                label: Text(
+                  ubicacion == null
+                      ? 'Seleccionar lugar en mapa'
+                      : 'Ubicación elegida ✓',
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: seleccionarFecha,
+                icon: const Icon(Icons.event),
+                label: Text(
+                  'Inicio: ${fecha.day}/${fecha.month} '
+                  '${fecha.hour.toString().padLeft(2, '0')}:'
+                  '${fecha.minute.toString().padLeft(2, '0')}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: guardar,
+          child: const Text('Crear actividad'),
+        ),
+      ],
+    );
+  }
+}
+

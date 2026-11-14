@@ -33,13 +33,14 @@ class Api {
     return await db.from('perfiles').select().eq('id', uid).maybeSingle();
   }
 
-  static Future<List<Map<String, dynamic>>> brigadas() async =>
-      List<Map<String, dynamic>>.from(
-        await db
-            .from('brigadas')
-            .select('*,perfiles(nombre)')
-            .order('creada_en', ascending: false),
-      );
+  static Future<List<Map<String, dynamic>>> brigadas() async {
+    final resultado = await db
+        .from('brigadas')
+        .select('id,nombre,comuna,descripcion,estado,creador_id,creada_en')
+        .order('creada_en', ascending: false);
+
+    return List<Map<String, dynamic>>.from(resultado);
+  }
 
   static Future<String> crearBrigada({
     required String nombre,
@@ -218,17 +219,27 @@ class Api {
         .order('cambiado_en', ascending: false),
   );
 
-  static Future<List<Map<String, dynamic>>> publicaciones() async =>
-      List<Map<String, dynamic>>.from(
-        await db
-            .from('publicaciones')
-            .select(
-              'id,titulo,descripcion,materiales,creada_en,autor_id,perfiles(nombre),publicacion_fotos(ruta_storage,posicion),publicacion_pasos(numero,texto),publicacion_likes(usuario_id)',
-            )
-            .eq('estado', 'publicada')
-            .order('creada_en', ascending: false)
-            .limit(80),
-      );
+  static Future<List<Map<String, dynamic>>> publicaciones() async {
+    final resultado = await db
+        .from('publicaciones')
+        .select('''
+        id,
+        titulo,
+        descripcion,
+        materiales,
+        creada_en,
+        autor_id,
+        perfiles!publicaciones_autor_id_fkey(nombre),
+        publicacion_fotos(ruta_storage,posicion),
+        publicacion_pasos(numero,texto),
+        publicacion_likes(usuario_id)
+      ''')
+        .eq('estado', 'publicada')
+        .order('creada_en', ascending: false)
+        .limit(80);
+
+    return List<Map<String, dynamic>>.from(resultado);
+  }
 
   static Future<void> crearPublicacion({
     required String titulo,
@@ -315,14 +326,19 @@ class Api {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> comentarios(String postId) async =>
-      List<Map<String, dynamic>>.from(
-        await db
-            .from('comentarios')
-            .select('texto,creado_en,perfiles(nombre)')
-            .eq('publicacion_id', postId)
-            .order('creado_en', ascending: true),
-      );
+  static Future<List<Map<String, dynamic>>> comentarios(String postId) async {
+    final resultado = await db
+        .from('comentarios')
+        .select('''
+        texto,
+        creado_en,
+        perfiles!comentarios_autor_id_fkey(nombre)
+      ''')
+        .eq('publicacion_id', postId)
+        .order('creado_en', ascending: true);
+
+    return List<Map<String, dynamic>>.from(resultado);
+  }
 
   static Future<void> comentar(String postId, String texto) async {
     if (texto.trim().isEmpty) throw ArgumentError('Escribe un comentario.');

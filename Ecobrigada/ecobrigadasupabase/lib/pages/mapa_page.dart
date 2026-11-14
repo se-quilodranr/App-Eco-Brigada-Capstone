@@ -59,6 +59,107 @@ class MapaPage extends StatefulWidget {
   State<MapaPage> createState() => _MapaPageState();
 }
 
+class _FormularioLugar extends StatefulWidget {
+  final LatLng posicion;
+
+  const _FormularioLugar({required this.posicion});
+
+  @override
+  State<_FormularioLugar> createState() => _FormularioLugarState();
+}
+
+class _FormularioLugarState extends State<_FormularioLugar> {
+  final nombre = TextEditingController();
+  final descripcion = TextEditingController();
+
+  String estado = 'sucio';
+
+  @override
+  void dispose() {
+    nombre.dispose();
+    descripcion.dispose();
+    super.dispose();
+  }
+
+  void guardar() {
+    FocusScope.of(context).unfocus();
+
+    Navigator.pop(context, {
+      'nombre': nombre.text,
+      'descripcion': descripcion.text,
+      'estado': estado,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        20,
+        20,
+        MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Marcar nuevo lugar',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+
+            const SizedBox(height: 12),
+
+            Text(
+              'Lat: ${widget.posicion.latitude.toStringAsFixed(5)} '
+              '· Lon: ${widget.posicion.longitude.toStringAsFixed(5)}',
+            ),
+
+            const SizedBox(height: 12),
+
+            TextField(
+              controller: nombre,
+              maxLength: 150,
+              decoration: const InputDecoration(labelText: 'Nombre del lugar'),
+            ),
+
+            TextField(
+              controller: descripcion,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Descripción'),
+            ),
+
+            DropdownButtonFormField<String>(
+              initialValue: estado,
+              items: const [
+                DropdownMenuItem(value: 'sucio', child: Text('🔴 Lugar sucio')),
+                DropdownMenuItem(
+                  value: 'limpio',
+                  child: Text('🟢 Lugar limpio'),
+                ),
+              ],
+              onChanged: (valor) {
+                setState(() {
+                  estado = valor ?? 'sucio';
+                });
+              },
+            ),
+
+            const SizedBox(height: 16),
+
+            FilledButton(
+              onPressed: guardar,
+              child: const Text('Guardar ubicación'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MapaPageState extends State<MapaPage> {
   final controller = MapController();
   List<Map<String, dynamic>> lugares = [];
@@ -111,94 +212,40 @@ class _MapaPageState extends State<MapaPage> {
   }
 
   Future<void> crearLugar(LatLng p) async {
-    setState(() => seleccionando = false);
-    final nombre = TextEditingController();
-    final descripcion = TextEditingController();
-    String estado = 'sucio';
+    setState(() {
+      seleccionando = false;
+    });
+
     final datos = await showModalBottomSheet<Map<String, String>>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            MediaQuery.viewInsetsOf(ctx).bottom + 24,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Marcar nuevo lugar',
-                  style: Theme.of(ctx).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Lat: ${p.latitude.toStringAsFixed(5)} · Lon: ${p.longitude.toStringAsFixed(5)}',
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: nombre,
-                  maxLength: 150,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre del lugar',
-                  ),
-                ),
-                TextField(
-                  controller: descripcion,
-                  maxLines: 2,
-                  decoration: const InputDecoration(labelText: 'Descripción'),
-                ),
-                DropdownButtonFormField<String>(
-                  initialValue: estado,
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'sucio',
-                      child: Text('🔴 Lugar sucio'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'limpio',
-                      child: Text('🟢 Lugar limpio'),
-                    ),
-                  ],
-                  onChanged: (v) => setSheet(() => estado = v ?? 'sucio'),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, {
-                    'nombre': nombre.text,
-                    'descripcion': descripcion.text,
-                    'estado': estado,
-                  }),
-                  child: const Text('Guardar ubicación'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      builder: (context) => _FormularioLugar(posicion: p),
     );
-    nombre.dispose();
-    descripcion.dispose();
+
     if (!mounted || datos == null) return;
-    if ((datos['nombre'] ?? '').trim().length < 3) {
+
+    if (datos['nombre']!.trim().length < 3) {
       mostrarError(context, 'Escribe un nombre de al menos 3 caracteres');
       return;
     }
+
     try {
       await Api.crearLugar(
-        nombre: datos['nombre']!,
-        descripcion: datos['descripcion']!,
+        nombre: datos['nombre']!.trim(),
+        descripcion: datos['descripcion']!.trim(),
         lat: p.latitude,
         lon: p.longitude,
         estado: datos['estado']!,
       );
+
+      if (!mounted) return;
+
+      // Volver a obtener los puntos desde Supabase.
       await recargar();
     } catch (e) {
-      if (mounted) mostrarError(context, e);
+      if (mounted) {
+        mostrarError(context, e);
+      }
     }
   }
 
