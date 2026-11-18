@@ -1,824 +1,415 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../main.dart';
-import '../services/api.dart';
-import 'chat_page.dart';
+import '../core/design.dart';
+import '../core/models.dart';
+import '../core/store.dart';
+import '../widgets/common.dart';
 import 'mapa_page.dart';
+import 'chat_brigada_page.dart';
 
-class BrigadasPage extends StatefulWidget {
-  const BrigadasPage({super.key});
-  @override
-  State<BrigadasPage> createState() => _BrigadasPageState();
-}
+class EcoBrigadas extends StatelessWidget {
+  final EcoStore store;
+  const EcoBrigadas({super.key, required this.store});
 
-class _BrigadasPageState extends State<BrigadasPage> {
-  late Future<List<Map<String, dynamic>>> future;
-  String filtro = '';
-
-  @override
-  void initState() {
-    super.initState();
-    future = Api.brigadas();
-  }
-
-  void refrescar() {
-    if (!mounted) return;
-
-    setState(() {
-      future = Api.brigadas();
-    });
-  }
-
-  Future<void> nuevaBrigada() async {
-    if (!await asegurarSesion(context)) return;
-    if (!mounted) return;
-    final nombre = TextEditingController();
-    final comuna = TextEditingController();
-    final descripcion = TextEditingController();
-    String estado = 'abierta';
-    final datos = await showDialog<Map<String, String>>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, cambiar) => AlertDialog(
-          title: const Text('Crear brigada'),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nombre,
-                    maxLength: 100,
-                    decoration: const InputDecoration(
-                      labelText: 'Nombre de la brigada',
-                    ),
-                  ),
-                  TextField(
-                    controller: comuna,
-                    maxLength: 100,
-                    decoration: const InputDecoration(labelText: 'Comuna'),
-                  ),
-                  TextField(
-                    controller: descripcion,
-                    maxLines: 2,
-                    decoration: const InputDecoration(labelText: 'Descripción'),
-                  ),
-                  DropdownButtonFormField<String>(
-                    initialValue: estado,
-                    decoration: const InputDecoration(
-                      labelText: 'Solicitudes de ingreso',
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'abierta',
-                        child: Text('Abierta: recibe solicitudes'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'cerrada',
-                        child: Text('Cerrada: no recibe solicitudes'),
-                      ),
-                    ],
-                    onChanged: (v) => cambiar(() => estado = v ?? 'abierta'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, {
-                'nombre': nombre.text,
-                'comuna': comuna.text,
-                'descripcion': descripcion.text,
-                'estado': estado,
-              }),
-              child: const Text('Crear'),
-            ),
-          ],
-        ),
-      ),
-    );
-    nombre.dispose();
-    comuna.dispose();
-    descripcion.dispose();
-    if (!mounted || datos == null) return;
-    if ((datos['nombre'] ?? '').trim().length < 3 ||
-        (datos['comuna'] ?? '').trim().length < 2) {
-      mostrarError(context, 'Completa el nombre y la comuna');
-      return;
-    }
-    try {
-      final id = await Api.crearBrigada(
-        nombre: datos['nombre']!,
-        comuna: datos['comuna']!,
-        descripcion: datos['descripcion']!,
-        estado: datos['estado']!,
-      );
-      refrescar();
-      if (!mounted) return;
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => BrigadaDetallePage(brigadaId: id)),
-      );
-      refrescar();
-    } catch (e) {
-      if (mounted) mostrarError(context, e);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Brigadas comunitarias',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: nuevaBrigada,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Crear'),
-                ),
-              ],
-            ),
+  Future<void> _crearJornada(BuildContext context) async {
+    final gestionables = store.brigadas.where((b) => store.gestionaBrigada(b.id)).toList();
+    if (gestionables.isEmpty) return;
+    final titulo = TextEditingController();
+    final lugar = TextEditingController();
+    String equipo = gestionables.first.id;
+    var fecha = DateTime.now().add(const Duration(days: 3));
+    final ok = await showDialog<bool>(context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
+        title: const Text('Programar jornada'),
+        content: SizedBox(width: 440, child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: titulo, decoration: const InputDecoration(labelText: 'Nombre de la actividad')),
             const SizedBox(height: 12),
-            TextField(
-              onChanged: (v) => setState(() => filtro = v.toLowerCase().trim()),
-              decoration: const InputDecoration(
-                hintText: 'Buscar por nombre o comuna',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
+            TextField(controller: lugar, decoration: const InputDecoration(labelText: 'Lugar')),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(initialValue: equipo,
+              decoration: const InputDecoration(labelText: 'Brigada'),
+              items: gestionables.map((b) => DropdownMenuItem(
+                value: b.id, child: Text(b.nombre))).toList(),
+              onChanged: (v) => equipo = v ?? equipo),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(onPressed: () async {
+              final d = await showDatePicker(context: ctx,
+                initialDate: fecha, firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365)));
+              if (d != null) setD(() => fecha = d);
+            }, icon: const Icon(Icons.calendar_month),
+              label: Text('${fecha.day}/${fecha.month}/${fecha.year}')),
+          ]))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Programar')),
+        ],
+      )));
+    if (ok == true) {
+      try { await store.crearJornada(titulo: titulo.text, brigadaId: equipo,
+        lugar: lugar.text, fecha: fecha);
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Jornada registrada.')));
+      } catch (e) { if (context.mounted) mostrarError(context, e); }
+    }
+    titulo.dispose(); lugar.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(20, 24, 20, 34), children: [
+      Row(children: [
+        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Brigadas ambientales', style: TextStyle(fontSize: 24,
+              fontWeight: FontWeight.w900, color: EcoColors.forest)),
+            Text('Equipos que transforman las comunidades',
+              style: TextStyle(color: EcoColors.muted, fontSize: 12)),
+          ])),
+        if (store.esAdmin) IconButton.filledTonal(tooltip: 'Crear brigada',
+          onPressed: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => NuevaBrigadaPage(store: store))),
+          icon: const Icon(Icons.add)),
+      ]),
+      const SizedBox(height: 22),
+      const EcoSection(title: 'Equipos comunitarios'),
+      if (store.brigadas.isEmpty) const EmptyEco(titulo: 'Aún no hay brigadas',
+        descripcion: 'Un administrador puede registrar la primera.'),
+      for (final b in store.brigadas) ...[
+        InkWell(onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => DetalleBrigadaPage(store: store, brigadaId: b.id))),
+          child: EcoPanel(child: Row(children: [
+          Container(width: 57, height: 57,
+            decoration: BoxDecoration(color: EcoColors.mint,
+              borderRadius: BorderRadius.circular(16)),
+            child: const Icon(Icons.diversity_3_rounded,
+              color: EcoColors.green, size: 31)),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(b.nombre, style: const TextStyle(fontSize: 16,
+                fontWeight: FontWeight.w900, color: EcoColors.forest)),
+              const SizedBox(height: 5),
+              Text(b.descripcion, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: EcoColors.muted, fontSize: 12)),
+              const SizedBox(height: 7),
+              Wrap(spacing: 12, children: [
+                Text('📍 ${b.comuna}', style: const TextStyle(fontSize: 11)),
+                Text('👥 ${b.miembros} integrante(s)',
+                  style: const TextStyle(fontSize: 11)),
+              ]),
+            ])),
+            const SizedBox(width: 6),
+            Icon(b.disponible ? Icons.check_circle_rounded : Icons.pause_circle,
+              color: b.disponible ? EcoColors.green : EcoColors.orange),
+        ]))),
+        const SizedBox(height: 9),
+        Align(alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => DetalleBrigadaPage(store: store, brigadaId: b.id))),
+            icon: const Icon(Icons.arrow_forward_rounded),
+            label: const Text('Ver brigada, integrantes y chat'),
+          ),
         ),
-      ),
-      Expanded(
-        child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: future,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snap.hasError) {
-              return Center(child: Text('Error: ${snap.error}'));
-            }
-            final lista = (snap.data ?? [])
-                .where(
-                  (b) => '${b['nombre']} ${b['comuna']}'.toLowerCase().contains(
-                    filtro,
-                  ),
-                )
-                .toList();
-            if (lista.isEmpty) {
-              return const Center(child: Text('No hay brigadas creadas.'));
-            }
-            return RefreshIndicator(
-              onRefresh: () async {
-                refrescar();
-                await future;
-              },
-              child: LayoutBuilder(
-                builder: (ctx, c) => GridView.builder(
-                  padding: const EdgeInsets.all(12),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: c.maxWidth > 960
-                        ? 3
-                        : c.maxWidth > 550
-                        ? 2
-                        : 1,
-                    mainAxisExtent: 205,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  itemCount: lista.length,
-                  itemBuilder: (context, i) {
-                    final b = lista[i];
-                    final abierto = b['estado'] == 'abierta';
-                    return Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => BrigadaDetallePage(
-                                brigadaId: b['id'].toString(),
-                              ),
-                            ),
-                          );
-                          refrescar();
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.groups,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primary,
-                                    size: 34,
-                                  ),
-                                  const Spacer(),
-                                  Chip(
-                                    label: Text(
-                                      abierto ? '🟢 Abierta' : '🔒 Cerrada',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Text(
-                                b['nombre'].toString(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              Text('📍 ${b['comuna']}', maxLines: 1),
-                              const SizedBox(height: 6),
-                              Text(
-                                b['descripcion']?.toString() ?? '',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const Spacer(),
-                              const Align(
-                                alignment: Alignment.centerRight,
-                                child: Text('Ver brigada →'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            );
-          },
-        ),
-      ),
+        const SizedBox(height: 12),
+      ],
+      const SizedBox(height: 20),
+      EcoSection(title: 'Jornadas programadas',
+        subtitle: 'Planificación de operativos comunitarios',
+        trailing: store.brigadas.any((b) => store.gestionaBrigada(b.id))
+          ? TextButton.icon(onPressed: () => _crearJornada(context),
+              icon: const Icon(Icons.add), label: const Text('Organizar'))
+          : null),
+      if (store.jornadas.isEmpty) const EmptyEco(titulo: 'Sin jornadas',
+        descripcion: 'Las actividades futuras aparecerán aquí.'),
+      for (final j in ([...store.jornadas]..sort((a, b) => a.fecha.compareTo(b.fecha)))) ...[
+        EcoPanel(child: Row(children: [
+          Container(width: 60, padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: EcoColors.pale,
+              borderRadius: BorderRadius.circular(12)),
+            child: Column(children: [
+              Text('${j.fecha.day}', style: const TextStyle(fontSize: 22,
+                fontWeight: FontWeight.w900, color: EcoColors.green)),
+              Text('${j.fecha.month}/${j.fecha.year}',
+                style: const TextStyle(fontSize: 10, color: EcoColors.muted)),
+            ])),
+          const SizedBox(width: 15),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(j.titulo, style: const TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 5),
+              Text(j.lugar, style: const TextStyle(color: EcoColors.muted)),
+            ])),
+          const Icon(Icons.event_available_outlined, color: EcoColors.green),
+        ])),
+        const SizedBox(height: 10),
+      ],
     ],
   );
 }
 
-class BrigadaDetallePage extends StatefulWidget {
-  final String brigadaId;
-  const BrigadaDetallePage({super.key, required this.brigadaId});
+class NuevaBrigadaPage extends StatefulWidget {
+  final EcoStore store;
+  const NuevaBrigadaPage({super.key, required this.store});
   @override
-  State<BrigadaDetallePage> createState() => _BrigadaDetallePageState();
+  State<NuevaBrigadaPage> createState() => _NuevaBrigadaPageState();
 }
 
-class _BrigadaDetallePageState extends State<BrigadaDetallePage> {
-  Map<String, dynamic>? brigada;
-  List<Map<String, dynamic>> actividades = [];
-  List<Map<String, dynamic>> miembros = [];
-  List<Map<String, dynamic>> solicitudes = [];
-  bool loading = true;
-  bool soyMiembro = false;
-  bool get admin => Api.db.auth.currentUser?.id == brigada?['creador_id'];
+class _NuevaBrigadaPageState extends State<NuevaBrigadaPage> {
+  final nombre = TextEditingController();
+  final comuna = TextEditingController(text: 'Concepción');
+  final descripcion = TextEditingController();
+  final lider = TextEditingController();
+  int miembros = 1;
+  LatLng punto = ecoCentro;
+  bool cargando = false;
+  @override
+  void dispose() {
+    nombre.dispose(); comuna.dispose(); descripcion.dispose(); lider.dispose();
+    super.dispose();
+  }
+  Future<void> guardar() async {
+    setState(() => cargando = true);
+    try {
+      await widget.store.crearBrigada(nombre: nombre.text,
+        comuna: comuna.text, descripcion: descripcion.text,
+        miembros: miembros, punto: punto, liderUid: lider.text.trim().isEmpty
+          ? null : lider.text.trim());
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) mostrarError(context, e);
+    } finally { if (mounted) setState(() => cargando = false); }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Crear brigada')),
+    body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 730),
+      child: ListView(padding: const EdgeInsets.all(20), children: [
+        const EcoSection(title: 'Nuevo equipo ambiental'),
+        TextField(controller: nombre, decoration: const InputDecoration(labelText: 'Nombre de la brigada')),
+        const SizedBox(height: 12),
+        TextField(controller: descripcion, decoration: const InputDecoration(labelText: 'Descripción')),
+        const SizedBox(height: 12),
+        TextField(controller: comuna, decoration: const InputDecoration(labelText: 'Comuna')),
+        const SizedBox(height: 12),
+        ...[
+          TextField(controller: lider, decoration: const InputDecoration(
+            labelText: 'UID de líder (Supabase Auth, opcional)')),
+          const SizedBox(height: 12),
+        ],
+        const Text('Los integrantes se registran mediante solicitudes aprobadas.',
+          style: TextStyle(color: EcoColors.muted, fontSize: 12)),
+        const SizedBox(height: 12),
+        SelectorPunto(inicial: punto, onChanged: (p) => punto = p),
+        const SizedBox(height: 20),
+        FilledButton(onPressed: cargando ? null : guardar,
+          child: Text(cargando ? 'Guardando...' : 'Crear brigada')),
+      ]))),
+  );
+}
+
+
+/// Alta de integrantes por solicitud y aprobación, independiente de jornadas.
+class DetalleBrigadaPage extends StatefulWidget {
+  const DetalleBrigadaPage({super.key, required this.store, required this.brigadaId});
+  final EcoStore store;
+  final String brigadaId;
+  @override
+  State<DetalleBrigadaPage> createState() => _DetalleBrigadaPageState();
+}
+
+class _DetalleBrigadaPageState extends State<DetalleBrigadaPage> {
+  bool cargando = false;
+  bool procesando = false;
 
   @override
   void initState() {
     super.initState();
-    cargar();
+    _recargar();
   }
 
-  Future<void> cargar() async {
+  Future<void> _recargar() async {
+    if (mounted) setState(() => cargando = true);
     try {
-      final b = await Api.db
-          .from('brigadas')
-          .select()
-          .eq('id', widget.brigadaId)
-          .single();
-      final a = await Api.actividades(brigadaId: widget.brigadaId);
-      final m = await Api.miembros(widget.brigadaId);
-      final actual = Api.db.auth.currentUser?.id;
-      final esAdmin = actual != null && b['creador_id'] == actual;
-      final s = esAdmin
-          ? await Api.solicitudesBrigada(widget.brigadaId)
-          : <Map<String, dynamic>>[];
-      if (!mounted) return;
-      setState(() {
-        brigada = b;
-        actividades = a;
-        miembros = m;
-        solicitudes = s;
-        soyMiembro = actual != null && m.any((x) => x['usuario_id'] == actual);
-        loading = false;
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() => loading = false);
-        mostrarError(context, e);
-      }
-    }
-  }
-
-  Future<void> cambiarEstado() async {
-    final nuevo = brigada?['estado'] == 'abierta' ? 'cerrada' : 'abierta';
-    try {
-      await Api.cambiarEstadoBrigada(widget.brigadaId, nuevo);
-      await cargar();
+      await widget.store.cargarParticipacion(widget.brigadaId);
     } catch (e) {
       if (mounted) mostrarError(context, e);
+    } finally {
+      if (mounted) setState(() => cargando = false);
     }
   }
 
-  Future<void> solicitar({String? actividadId}) async {
-    if (!await asegurarSesion(context)) return;
+  Future<void> _solicitar() async {
+    setState(() => procesando = true);
     try {
-      await Api.solicitar(
-        brigadaId: widget.brigadaId,
-        actividadId: actividadId,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Solicitud enviada. Debes esperar la aprobación del administrador.',
-            ),
-          ),
-        );
-      }
+      await widget.store.solicitarIngreso(widget.brigadaId);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solicitud enviada a la brigada.')));
     } catch (e) {
       if (mounted) mostrarError(context, e);
+    } finally {
+      if (mounted) setState(() => procesando = false);
     }
   }
 
-  Future<void> crearActividad() async {
-    final datos = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => const _CrearActividadDialog(),
-    );
-
-    if (!mounted || datos == null) return;
-
-    final titulo = (datos['titulo'] as String).trim();
-    final descripcion = (datos['descripcion'] as String).trim();
-    final ubicacion = datos['ubicacion'] as LatLng?;
-    final fecha = datos['fecha'] as DateTime;
-
-    if (titulo.length < 3 || ubicacion == null) {
-      mostrarError(
-        context,
-        'Escribe un título y selecciona un lugar en el mapa',
-      );
-      return;
-    }
-
+  Future<void> _revisar(SolicitudBrigada solicitud, bool aprobar) async {
+    setState(() => procesando = true);
     try {
-      await Api.crearActividad(
-        brigadaId: widget.brigadaId,
-        titulo: titulo,
-        descripcion: descripcion,
-        lat: ubicacion.latitude,
-        lon: ubicacion.longitude,
-        inicio: fecha,
-      );
-
-      if (!mounted) return;
-
-      // Recarga las actividades inmediatamente.
-      await cargar();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Actividad creada correctamente')),
-      );
-    } catch (e) {
-      if (mounted) {
-        mostrarError(context, e);
-      }
-    }
-  }
-
-  Future<void> resolver(String solicitudId, bool aprobar) async {
-    try {
-      await Api.resolver(solicitudId, aprobar);
-      await cargar();
+      await widget.store.revisarSolicitud(solicitud, aprobar: aprobar);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(aprobar ? 'Integrante incorporado.' : 'Solicitud rechazada.')));
     } catch (e) {
       if (mounted) mostrarError(context, e);
+    } finally {
+      if (mounted) setState(() => procesando = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.store,
+    builder: (context, _) {
+      final s = widget.store;
+      final equipos = s.brigadas.where((b) => b.id == widget.brigadaId);
+      if (equipos.isEmpty) return const Scaffold(body: Center(
+        child: Text('No se encontró la brigada.')));
+      final b = equipos.first;
+      final encargado = s.gestionaBrigada(b.id);
+      final solicitud = s.miSolicitud(b.id);
+      final misIntegrantes = s.integrantesDe(b.id);
+      final solicitudesPendientes = s.solicitudesDe(b.id)
+        .where((r) => r.estado == 'pendiente').toList();
+      final soyLider = b.liderUid == s.uid;
+      final lideres = misIntegrantes.where((m) => m.uid == b.liderUid);
+      final liderNombre = lideres.isEmpty ? 'Por confirmar' : lideres.first.nombre;
 
-    final b = brigada;
-    if (b == null) {
       return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: Text('No se encontró la brigada')),
-      );
-    }
-
-    final abierta = b['estado'] == 'abierta';
-    final pendientes = solicitudes
-        .where((s) => s['estado'] == 'pendiente')
-        .toList();
-    final contenido = <Widget>[
-      Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                b['nombre'].toString(),
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 6),
-              Text('📍 ${b['comuna']}'),
-              Text(b['descripcion']?.toString() ?? ''),
-              const SizedBox(height: 8),
-              Chip(
-                label: Text(
-                  abierta
-                      ? '🟢 Abierta a solicitudes'
-                      : '🔒 Cerrada a solicitudes',
-                ),
-              ),
-              Text('Miembros: ${miembros.length}'),
-              const SizedBox(height: 12),
-              if (admin) ...[
-                SwitchListTile(
-                  title: const Text('Recibir solicitudes'),
-                  subtitle: Text(
-                    abierta ? 'Brigada abierta' : 'Brigada cerrada',
-                  ),
-                  value: abierta,
-                  onChanged: (_) => cambiarEstado(),
-                ),
-                FilledButton.icon(
-                  onPressed: crearActividad,
-                  icon: const Icon(Icons.add_location_alt),
-                  label: const Text('Nueva actividad'),
-                ),
-              ] else if (!soyMiembro && abierta) ...[
-                FilledButton.icon(
-                  onPressed: () => solicitar(),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('Solicitar unirme a la brigada'),
-                ),
-              ] else if (!soyMiembro) ...[
-                const Text('Esta brigada está cerrada. No recibe solicitudes.'),
-              ],
-              if (soyMiembro)
-                FilledButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ChatPage(
-                        brigadaId: widget.brigadaId,
-                        nombreBrigada: b['nombre'].toString(),
-                      ),
-                    ),
-                  ),
-                  icon: const Icon(Icons.chat),
-                  label: const Text('Ingresar al chat'),
-                ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 18),
-      Text('Actividades', style: Theme.of(context).textTheme.titleLarge),
-    ];
-
-    if (actividades.isEmpty) {
-      contenido.add(
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Esta brigada no tiene actividades todavía.'),
-        ),
-      );
-    }
-
-    for (final a in actividades) {
-      final inicio = a['fecha_inicio']?.toString().replaceFirst('T', ' ') ?? '';
-      final fecha = inicio.length >= 16 ? inicio.substring(0, 16) : inicio;
-      contenido.add(
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        appBar: AppBar(title: Text(b.nombre), actions: [
+          IconButton(tooltip: 'Actualizar', onPressed: cargando ? null : _recargar,
+            icon: const Icon(Icons.refresh_rounded)),
+        ]),
+        body: Center(child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: ListView(padding: const EdgeInsets.all(20), children: [
+            EcoPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  a['titulo'].toString(),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                Text(a['descripcion']?.toString() ?? ''),
-                Text('Estado: ${a['estado']}'),
-                Text('Fecha: $fecha'),
-                if (admin)
-                  DropdownButton<String>(
-                    value: a['estado'] as String,
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'programada',
-                        child: Text('Programada'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'en_curso',
-                        child: Text('En curso'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'finalizada',
-                        child: Text('Finalizada'),
-                      ),
-                    ],
-                    onChanged: (value) async {
-                      if (value == null) return;
-                      try {
-                        await Api.cambiarEstadoActividad(
-                          a['id'].toString(),
-                          value,
-                        );
-                        await cargar();
-                      } catch (e) {
-                        if (context.mounted) {
-                          mostrarError(context, e);
-                        }
-                      }
-                    },
-                  ),
-                if (!admin && abierta && a['estado'] != 'finalizada')
-                  TextButton.icon(
-                    onPressed: () => solicitar(actividadId: a['id'].toString()),
-                    icon: const Icon(Icons.how_to_reg),
-                    label: const Text('Solicitar participar'),
-                  ),
+                Text(b.nombre, style: const TextStyle(fontSize: 23,
+                  fontWeight: FontWeight.w900, color: EcoColors.forest)),
+                const SizedBox(height: 7),
+                Text(b.descripcion),
+                const SizedBox(height: 9),
+                Text('📍 ${b.comuna}', style: const TextStyle(color: EcoColors.muted)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 16, runSpacing: 6, children: [
+                  Text('👥 ${b.miembros} integrante(s)',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text('Estado: ${b.disponible ? 'Disponible' : 'Pausada'}',
+                    style: const TextStyle(color: EcoColors.muted)),
+                ]),
+                const SizedBox(height: 8),
+                Text('Responsable: $liderNombre',
+                  style: const TextStyle(color: EcoColors.muted, fontSize: 12)),
+                if (b.nombre.toLowerCase().contains('ficticia'))
+                  const Padding(padding: EdgeInsets.only(top: 8),
+                    child: Text('Brigada de prueba: equipo y ubicación ficticios.',
+                      style: TextStyle(color: EcoColors.orange, fontSize: 12))),
+                if (soyLider) const Padding(padding: EdgeInsets.only(top: 7),
+                  child: Text('Eres líder de esta brigada.',
+                    style: TextStyle(color: EcoColors.green))),
+              ])),
+            const SizedBox(height: 18),
+            const EcoSection(title: 'Chat grupal',
+              subtitle: 'Los mensajes son privados y están separados por brigada.'),
+            if (s.puedeChatear(b.id)) ...[
+              EcoPanel(child: Row(children: [
+                const Icon(Icons.forum_rounded, color: EcoColors.green, size: 31),
+                const SizedBox(width: 12),
+                const Expanded(child: Text(
+                  'Puedes leer y enviar mensajes con los integrantes de esta brigada.',
+                  style: TextStyle(fontSize: 12))),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ChatBrigadaPage(store: s, brigadaId: b.id))),
+                  icon: const Icon(Icons.chat_bubble_outline_rounded),
+                  label: const Text('Abrir chat')),
+              ])),
+            ] else
+              const EcoPanel(child: Row(children: [
+                Icon(Icons.lock_outline_rounded, color: EcoColors.muted),
+                SizedBox(width: 12),
+                Expanded(child: Text(
+                  'Chat reservado. Solicita ingreso; el chat se habilitará '
+                  'cuando te aprueben. Los administradores pueden ver cualquier chat.',
+                  style: TextStyle(fontSize: 12))),
+              ])),
+            const SizedBox(height: 18),
+            if (cargando) const LinearProgressIndicator(),
+            if (!encargado) ...[
+              const EcoSection(title: 'Participar en esta brigada',
+                subtitle: 'El líder revisará tu solicitud antes de incorporarte.'),
+              if (!s.autenticado) const EcoPanel(child: Text(
+                'Debes iniciar sesión para solicitar tu incorporación.'))
+              else if (s.soyIntegrante(b.id))
+                const EcoPanel(child: Text('✅ Ya perteneces a esta brigada.'))
+              else if (solicitud?.estado == 'pendiente')
+                const EcoPanel(child: Text('⏳ Tu solicitud está pendiente de aprobación.'))
+              else if (solicitud?.estado == 'aprobada')
+                const EcoPanel(child: Text('✅ Solicitud aprobada.'))
+              else ...[
+                if (solicitud?.estado == 'rechazada')
+                  const Padding(padding: EdgeInsets.only(bottom: 10),
+                    child: Text('Tu solicitud anterior fue rechazada. Puedes enviar otra.')),
+                FilledButton.icon(onPressed: (procesando || cargando) ? null : _solicitar,
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                  label: const Text('Solicitar ingreso')),
               ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (admin) {
-      contenido.addAll([
-        const SizedBox(height: 14),
-        Text(
-          'Solicitudes recibidas',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-      ]);
-      if (pendientes.isEmpty) {
-        contenido.add(
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text('No hay solicitudes pendientes.'),
-          ),
-        );
-      }
-      for (final s in pendientes) {
-        contenido.add(
-          Card(
-            child: ListTile(
-              title: Text(
-                (s['perfiles'] as Map?)?['nombre']?.toString() ?? 'Usuario',
-              ),
-              subtitle: Text(
-                s['actividad_id'] == null
-                    ? 'Solicita ingresar a la brigada'
-                    : 'Actividad: ${(s['actividades'] as Map?)?['titulo'] ?? 'Actividad'}',
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Aceptar',
-                    onPressed: () => resolver(s['id'].toString(), true),
-                    icon: const Icon(Icons.check_circle, color: Colors.green),
-                  ),
-                  IconButton(
-                    tooltip: 'Rechazar',
-                    onPressed: () => resolver(s['id'].toString(), false),
-                    icon: const Icon(Icons.cancel, color: Colors.red),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }
-    }
-
-    contenido.addAll([
-      const SizedBox(height: 14),
-      Text('Integrantes', style: Theme.of(context).textTheme.titleLarge),
-    ]);
-    for (final m in miembros) {
-      contenido.add(
-        ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.person)),
-          title: Text(
-            (m['perfiles'] as Map?)?['nombre']?.toString() ?? 'Usuario',
-          ),
-          subtitle: Text(m['rol'].toString()),
-        ),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(b['nombre'].toString()),
-        actions: [
-          IconButton(onPressed: cargar, icon: const Icon(Icons.refresh)),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: cargar,
-        child: ListView(padding: const EdgeInsets.all(16), children: contenido),
-      ),
-    );
-  }
-}
-
-class _CrearActividadDialog extends StatefulWidget {
-  const _CrearActividadDialog();
-
-  @override
-  State<_CrearActividadDialog> createState() =>
-      _CrearActividadDialogState();
-}
-
-class _CrearActividadDialogState
-    extends State<_CrearActividadDialog> {
-  final titulo = TextEditingController();
-  final descripcion = TextEditingController();
-
-  LatLng? ubicacion;
-  DateTime fecha = DateTime.now().add(
-    const Duration(days: 1),
-  );
-
-  @override
-  void dispose() {
-    titulo.dispose();
-    descripcion.dispose();
-    super.dispose();
-  }
-
-  Future<void> seleccionarUbicacion() async {
-    FocusScope.of(context).unfocus();
-
-    final p = await Navigator.push<LatLng>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const ElegirUbicacionPage(),
-      ),
-    );
-
-    if (!mounted || p == null) return;
-
-    setState(() {
-      ubicacion = p;
-    });
-  }
-
-  Future<void> seleccionarFecha() async {
-    FocusScope.of(context).unfocus();
-
-    final dia = await showDatePicker(
-      context: context,
-      initialDate: fecha,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(
-        const Duration(days: 365),
-      ),
-    );
-
-    if (!mounted || dia == null) return;
-
-    final hora = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(fecha),
-    );
-
-    if (!mounted || hora == null) return;
-
-    setState(() {
-      fecha = DateTime(
-        dia.year,
-        dia.month,
-        dia.day,
-        hora.hour,
-        hora.minute,
-      );
-    });
-  }
-
-  void guardar() {
-    FocusScope.of(context).unfocus();
-
-    if (titulo.text.trim().length < 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Escribe un título válido'),
-        ),
-      );
-      return;
-    }
-
-    if (ubicacion == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Selecciona una ubicación'),
-        ),
-      );
-      return;
-    }
-
-    Navigator.pop(context, {
-      'titulo': titulo.text,
-      'descripcion': descripcion.text,
-      'ubicacion': ubicacion,
-      'fecha': fecha,
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Organizar actividad'),
-      content: SizedBox(
-        width: 440,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titulo,
-                maxLength: 150,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre de la actividad',
-                ),
-              ),
-              TextField(
-                controller: descripcion,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: '¿Qué harán?',
-                ),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: seleccionarUbicacion,
-                icon: const Icon(Icons.place),
-                label: Text(
-                  ubicacion == null
-                      ? 'Seleccionar lugar en mapa'
-                      : 'Ubicación elegida ✓',
-                ),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: seleccionarFecha,
-                icon: const Icon(Icons.event),
-                label: Text(
-                  'Inicio: ${fecha.day}/${fecha.month} '
-                  '${fecha.hour.toString().padLeft(2, '0')}:'
-                  '${fecha.minute.toString().padLeft(2, '0')}',
-                ),
-              ),
             ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: guardar,
-          child: const Text('Crear actividad'),
-        ),
-      ],
-    );
-  }
-}
+            if (encargado) ...[
+              const EcoSection(title: 'Solicitudes pendientes',
+                subtitle: 'Solo el líder de este equipo o administración puede aprobar.'),
+              if (solicitudesPendientes.isEmpty)
+                const EcoPanel(child: Text('No hay solicitudes pendientes.')),
+              for (final solicitud in solicitudesPendientes) ...[
+                EcoPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(solicitud.nombre, style: const TextStyle(
+                      fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 5),
+                    Text('Solicitada: ${solicitud.fechaSolicitud.day}/'
+                      '${solicitud.fechaSolicitud.month}/${solicitud.fechaSolicitud.year}',
+                      style: const TextStyle(fontSize: 12, color: EcoColors.muted)),
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 10, children: [
+                      FilledButton.icon(onPressed: procesando ? null : () => _revisar(solicitud, true),
+                        icon: const Icon(Icons.check), label: const Text('Aprobar')),
+                      OutlinedButton.icon(onPressed: procesando ? null : () => _revisar(solicitud, false),
+                        icon: const Icon(Icons.close), label: const Text('Rechazar')),
+                    ]),
+                  ])),
+                const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 15),
+              const EcoSection(title: 'Integrantes confirmados',
+                subtitle: 'Miembros incorporados tras una aprobación.'),
+              if (misIntegrantes.isEmpty)
+                const EcoPanel(child: Text('Aún no hay integrantes registrados.')),
+              for (final m in misIntegrantes) ...[
+                EcoPanel(child: ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                  title: Text(m.nombre),
+                  subtitle: Text('Incorporado: ${m.fechaIngreso.day}/'
+                    '${m.fechaIngreso.month}/${m.fechaIngreso.year}'),
+                )),
+                const SizedBox(height: 8),
+              ],
+            ],
 
+          ]),
+        )),
+      );
+    },
+  );
+}

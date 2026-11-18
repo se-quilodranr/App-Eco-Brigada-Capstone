@@ -46,3 +46,9 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Configuracion privada local de Supabase
+supabase_config.json
+.dart_tool/
+build/
+**/.gradle/
