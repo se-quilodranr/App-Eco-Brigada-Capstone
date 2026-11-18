@@ -17,7 +17,7 @@ class EcoSection extends StatelessWidget {
           Text(subtitle, style: const TextStyle(color: EcoColors.muted)),
         ],
       ])),
-      if (trailing != null) trailing!,
+      ?trailing,
     ]),
   );
 }

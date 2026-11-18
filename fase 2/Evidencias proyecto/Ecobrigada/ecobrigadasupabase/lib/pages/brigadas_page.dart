@@ -50,8 +50,10 @@ class EcoBrigadas extends StatelessWidget {
     if (ok == true) {
       try { await store.crearJornada(titulo: titulo.text, brigadaId: equipo,
         lugar: lugar.text, fecha: fecha);
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Jornada registrada.')));
+        }
       } catch (e) { if (context.mounted) mostrarError(context, e); }
     }
     titulo.dispose(); lugar.dispose();
@@ -246,8 +248,10 @@ class _DetalleBrigadaPageState extends State<DetalleBrigadaPage> {
     setState(() => procesando = true);
     try {
       await widget.store.solicitarIngreso(widget.brigadaId);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Solicitud enviada a la brigada.')));
+      }
     } catch (e) {
       if (mounted) mostrarError(context, e);
     } finally {
@@ -259,8 +263,10 @@ class _DetalleBrigadaPageState extends State<DetalleBrigadaPage> {
     setState(() => procesando = true);
     try {
       await widget.store.revisarSolicitud(solicitud, aprobar: aprobar);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(aprobar ? 'Integrante incorporado.' : 'Solicitud rechazada.')));
+      }
     } catch (e) {
       if (mounted) mostrarError(context, e);
     } finally {
@@ -274,8 +280,10 @@ class _DetalleBrigadaPageState extends State<DetalleBrigadaPage> {
     builder: (context, _) {
       final s = widget.store;
       final equipos = s.brigadas.where((b) => b.id == widget.brigadaId);
-      if (equipos.isEmpty) return const Scaffold(body: Center(
+      if (equipos.isEmpty) {
+        return const Scaffold(body: Center(
         child: Text('No se encontró la brigada.')));
+      }
       final b = equipos.first;
       final encargado = s.gestionaBrigada(b.id);
       final solicitud = s.miSolicitud(b.id);

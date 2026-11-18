@@ -124,7 +124,9 @@ class _EcoMapaState extends State<EcoMapa> {
       if (filtro == 'Resueltos' && r.estado != 'cerrado') return false;
       if (filtro == 'Descartados' && r.estado != 'descartado') return false;
       if (usuario != null && const Distance().as(LengthUnit.Kilometer,
-          usuario!, r.punto) > radio) return false;
+          usuario!, r.punto) > radio) {
+        return false;
+      }
       return true;
     }).toList();
     final zonas = detectarEcoZonas(reportes);

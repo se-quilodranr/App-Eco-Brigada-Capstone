@@ -133,7 +133,9 @@ List<ReincidenciaEco> detectarEcoReincidencia(
       if (actual.id == previo.id || actual.tipo != previo.tipo) continue;
       final transcurridos = actual.creadoEn.difference(previo.cerradoEn!).inDays;
       if (actual.creadoEn.isBefore(previo.cerradoEn!) ||
-          transcurridos > maxDiasDesdeCierre) continue;
+          transcurridos > maxDiasDesdeCierre) {
+        continue;
+      }
       final metros = distance.as(
         LengthUnit.Meter, actual.punto, previo.punto,
       );

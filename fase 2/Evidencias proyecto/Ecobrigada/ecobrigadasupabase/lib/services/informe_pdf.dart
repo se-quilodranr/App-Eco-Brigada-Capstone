@@ -45,7 +45,7 @@ class InformePdf {
         pw.Text('Brigadas: ${brigadas.length} | Jornadas: ${jornadas.length}'),
         pw.SizedBox(height:18),
         pw.Text('Incidencias registradas',style:pw.TextStyle(fontSize:13,fontWeight:pw.FontWeight.bold)),
-        pw.Table.fromTextArray(headers:['Incidencia','Comuna','Estado','Prioridad'],
+        pw.TableHelper.fromTextArray(headers:['Incidencia','Comuna','Estado','Prioridad'],
           data:detalle.take(300).map((r)=>[r.titulo,r.comuna,estadoNombre(r.estado),'${r.prioridad}/100']).toList(),
           headerStyle:pw.TextStyle(fontWeight:pw.FontWeight.bold),
           cellStyle:const pw.TextStyle(fontSize:8)),

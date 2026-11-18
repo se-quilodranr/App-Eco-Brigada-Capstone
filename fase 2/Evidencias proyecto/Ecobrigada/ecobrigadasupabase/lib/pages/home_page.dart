@@ -67,9 +67,11 @@ class EcoHome extends StatelessWidget {
               subtitle: 'Conoce equipos y próximas actividades.',
               onTap: () => irA(3)),
           ];
-          if (compact) return Column(children: [for (final w in widgets) ...[
+          if (compact) {
+            return Column(children: [for (final w in widgets) ...[
             w, const SizedBox(height: 12),
           ]]);
+          }
           return Row(crossAxisAlignment: CrossAxisAlignment.start,
             children: [for (final w in widgets) Expanded(child: Padding(
               padding: const EdgeInsets.only(right: 12), child: w))]);
@@ -138,8 +140,10 @@ class EcoHome extends StatelessWidget {
                   const Text('Próximamente habrá nuevas jornadas.'),
               ])),
             ]);
-          if (box.maxWidth < 800) return Column(children: [contenido,
+          if (box.maxWidth < 800) {
+            return Column(children: [contenido,
             const SizedBox(height: 25), actividades]);
+          }
           return Row(crossAxisAlignment: CrossAxisAlignment.start,
             children: [Expanded(flex: 3, child: contenido),
               const SizedBox(width: 24), Expanded(flex: 2, child: actividades)]);

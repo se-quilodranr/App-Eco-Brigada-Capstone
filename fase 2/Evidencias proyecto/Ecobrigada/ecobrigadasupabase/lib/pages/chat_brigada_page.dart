@@ -65,7 +65,7 @@ class _ChatBrigadaPageState extends State<ChatBrigadaPage> {
           children: [Text('Chat · $nombre', maxLines: 1,
             overflow: TextOverflow.ellipsis),
             const Text('Mensajería privada en tiempo real · Supabase',
-              style: const TextStyle(fontSize: 11,
+              style: TextStyle(fontSize: 11,
                 fontWeight: FontWeight.normal, color: EcoColors.muted)),
           ])),
         body: !autorizado
