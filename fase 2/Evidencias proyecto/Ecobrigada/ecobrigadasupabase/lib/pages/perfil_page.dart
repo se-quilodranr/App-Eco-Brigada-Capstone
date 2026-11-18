@@ -1,118 +1,63 @@
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
+import '../core/design.dart';
+import '../core/store.dart';
+import '../widgets/common.dart';
 
-import '../services/api.dart';
+class EcoPerfil extends StatelessWidget {
+  final EcoStore store;
+  const EcoPerfil({super.key, required this.store});
 
-class PerfilPage extends StatefulWidget {
-  const PerfilPage({super.key});
   @override
-  State<PerfilPage> createState() => _PerfilPageState();
-}
-
-class _PerfilPageState extends State<PerfilPage> {
-  late Future<Map<String, dynamic>?> perfil;
-  late Future<List<Map<String, dynamic>>> solicitudes;
-  @override
-  void initState() {
-    super.initState();
-    cargar();
+  Widget build(BuildContext context) {
+    final usuario = store.usuario;
+    final rol = store.esAdmin ? 'Administrador' :
+      store.esBrigadista ? 'Líder de brigada' : 'Ciudadano';
+    final propios = store.reportes.where((r) => r.creadorUid == store.uid).length;
+    return Scaffold(appBar: AppBar(title: const Text('Mi perfil')),
+      body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680),
+        child: ListView(padding: const EdgeInsets.all(22), children: [
+          EcoPanel(child: Column(children: [
+            if(store.avatarPath==null)
+              const CircleAvatar(radius:40,backgroundColor:EcoColors.mint,
+                child:Icon(Icons.person_rounded,color:EcoColors.green,size:43))
+            else FutureBuilder<String>(future:store.fotos.urlTemporal(store.avatarPath!),
+              builder:(context,s)=>s.hasData
+                ?CircleAvatar(radius:40,backgroundImage:NetworkImage(s.data!))
+                :const CircleAvatar(radius:40,child:Icon(Icons.person))),
+            const SizedBox(height:8),
+            OutlinedButton.icon(onPressed:() async {
+              try{
+                final imagen=await ImagePicker().pickImage(source:ImageSource.gallery);
+                if(imagen!=null)await store.actualizarAvatar(imagen);
+              }catch(e){if(context.mounted)mostrarError(context,e);}
+            },icon:const Icon(Icons.add_a_photo_outlined),label:const Text('Cambiar fotografía')),
+            const SizedBox(height: 15),
+            Text(store.nombreUsuario, textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 7),
+            Text(rol, style: const TextStyle(color: EcoColors.green,
+              fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            Text(usuario?.email ?? 'Sin correo',
+              style: const TextStyle(color: EcoColors.muted)),
+          ])),
+          const SizedBox(height: 19),
+          const EcoSection(title: 'Mi actividad'),
+          responsiveWrap([
+            Indicador(titulo: 'Mis reportes', valor: '$propios',
+              icono: Icons.assignment_outlined),
+            Indicador(titulo: 'Brigadas que lidero',
+              valor: '${store.brigadas.where((b) => b.liderUid == store.uid).length}',
+              icono: Icons.groups_outlined),
+          ]),
+          const SizedBox(height: 21),
+          const SizedBox(height:17),
+          OutlinedButton.icon(onPressed:() async{
+            await store.salir();
+            if(context.mounted && Navigator.of(context).canPop())Navigator.pop(context);
+          },icon:const Icon(Icons.logout),label:const Text('Cerrar sesión')),
+        ]))),
+    );
   }
-
-  void cargar() {
-    perfil = Api.perfil();
-    solicitudes = Api.misSolicitudes();
-  }
-
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.all(16),
-    children: [
-      Text('Mi perfil', style: Theme.of(context).textTheme.headlineSmall),
-      FutureBuilder<Map<String, dynamic>?>(
-        future: perfil,
-        builder: (ctx, snap) {
-          if (!snap.hasData) {
-            return const Padding(
-              padding: EdgeInsets.all(16),
-              child: LinearProgressIndicator(),
-            );
-          }
-          final p = snap.data!;
-          return Card(
-            child: ListTile(
-              leading: const CircleAvatar(
-                radius: 30,
-                child: Icon(Icons.person, size: 36),
-              ),
-              title: Text(p['nombre'].toString()),
-              subtitle: Text(
-                'Puntos: ${p['puntos']}\n${Api.db.auth.currentUser?.email ?? ''}',
-              ),
-              isThreeLine: true,
-            ),
-          );
-        },
-      ),
-      const SizedBox(height: 16),
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Mis solicitudes',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-          ),
-          IconButton(
-            onPressed: () => setState(cargar),
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      FutureBuilder<List<Map<String, dynamic>>>(
-        future: solicitudes,
-        builder: (ctx, snap) {
-          if (!snap.hasData) return const LinearProgressIndicator();
-          if (snap.data!.isEmpty) {
-            return const Text('Aún no has enviado solicitudes.');
-          }
-          return Column(
-            children: [
-              for (final s in snap.data!)
-                Card(
-                  child: ListTile(
-                    leading: Icon(
-                      s['estado'] == 'aceptada'
-                          ? Icons.check_circle
-                          : s['estado'] == 'rechazada'
-                          ? Icons.cancel
-                          : Icons.hourglass_empty,
-                      color: s['estado'] == 'aceptada'
-                          ? Colors.green
-                          : s['estado'] == 'rechazada'
-                          ? Colors.red
-                          : Colors.orange,
-                    ),
-                    title: Text(
-                      (s['brigadas'] as Map?)?['nombre']?.toString() ??
-                          'Brigada',
-                    ),
-                    subtitle: Text(
-                      'Estado: ${s['estado']}${s['actividad_id'] == null ? '' : ' · ${((s['actividades'] as Map?)?['titulo'] ?? 'Actividad')}'}',
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
-      ),
-      const SizedBox(height: 20),
-      OutlinedButton.icon(
-        onPressed: () async {
-          await Api.salir();
-          if (mounted) setState(cargar);
-        },
-        icon: const Icon(Icons.logout),
-        label: const Text('Cerrar sesión'),
-      ),
-    ],
-  );
 }

@@ -1,174 +1,516 @@
-import 'dart:async';
+// EcoBrigada 3.0 - lib/main.dart
+// Conexión a Supabase sin modificar el diseño ni los módulos de la aplicación.
+// Supabase configurado con Project URL y Publishable Key.
+// Los valores se pueden sobrescribir con --dart-define-from-file.
 
-import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/material.dart';
 
+import 'core/design.dart';
+import 'core/store.dart';
 import 'pages/auth_page.dart';
 import 'pages/brigadas_page.dart';
+import 'pages/home_page.dart';
+import 'pages/impacto_page.dart';
+import 'pages/incidencias_page.dart';
 import 'pages/mapa_page.dart';
+import 'pages/extra_page.dart';
 import 'pages/perfil_page.dart';
-import 'pages/publicaciones_page.dart';
-import 'services/api.dart';
+import 'pages/notificaciones_page.dart';
+import 'original/publicaciones_page.dart';
+import 'original/mapa_page.dart' as original_map;
+import 'original/brigadas_page.dart' as original_brigades;
+import 'original/perfil_page.dart' as original_profile;
+
+// OPCIÓN 1: pega aquí los datos de Project Settings > API Keys / Connect.
+// Solo utiliza la Project URL y la Publishable Key (sb_publishable_...).
+// Nunca pegues una Secret Key ni la clave service_role en Flutter.
+const String _urlManual = 'https://imcvutrsvudbmuzgnbyd.supabase.co';
+const String _publishableKeyManual =
+    'sb_publishable_T7KyxRQUf4r370SLNP3p6Q_rSn2sF2Z';
+
+// OPCIÓN 2 (recomendada): usa supabase_config.json en la raíz del proyecto.
+// Si las variables se proporcionan con --dart-define, tienen prioridad.
+const String _urlPorEntorno = String.fromEnvironment('SUPABASE_URL');
+const String _keyPorEntorno = String.fromEnvironment(
+  'SUPABASE_PUBLISHABLE_KEY',
+);
+
+bool _esDatoValido(String valor) {
+  return valor.isNotEmpty &&
+      !valor.contains('PEGA_AQUI') &&
+      !valor.contains('TU_PROJECT_REF');
+}
+
+bool _esUrlValida(String url) {
+  final uri = Uri.tryParse(url);
+  return _esDatoValido(url) &&
+      uri != null &&
+      uri.scheme == 'https' &&
+      uri.host.isNotEmpty;
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  const url = String.fromEnvironment('SUPABASE_URL');
-  const key = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
-  if (url.isEmpty || key.isEmpty) {
+
+  final url = _urlPorEntorno.isNotEmpty ? _urlPorEntorno : _urlManual;
+  final publishableKey = _keyPorEntorno.isNotEmpty
+      ? _keyPorEntorno
+      : _publishableKeyManual;
+
+  if (!_esUrlValida(url) || !_esDatoValido(publishableKey)) {
     runApp(
-      const MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'Faltan SUPABASE_URL y SUPABASE_PUBLISHABLE_KEY. Revisa README.md.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-        ),
+      const _PantallaErrorInicio(
+        titulo: 'Configura Supabase',
+        mensaje:
+            'Falta la Project URL o la Publishable Key.\n\n'
+            'Opción 1: reemplaza las dos constantes al inicio de lib/main.dart.\n\n'
+            'Opción 2: completa supabase_config.json y ejecuta Flutter con '
+            '--dart-define-from-file=supabase_config.json.',
       ),
     );
     return;
   }
-  await Supabase.initialize(url: url, publishableKey: key);
-  runApp(const EcoBrigadaApp());
+
+  try {
+    await Supabase.initialize(url: url, publishableKey: publishableKey);
+  } catch (error, stackTrace) {
+    debugPrint('Error al inicializar Supabase: $error\n$stackTrace');
+    runApp(
+      const _PantallaErrorInicio(
+        titulo: 'No se pudo iniciar Supabase',
+        mensaje:
+            'Revisa la Project URL, la Publishable Key y tu conexión '
+            'a internet. Si el problema continúa, consulta la consola de Flutter.',
+      ),
+    );
+    return;
+  }
+
+  final store = EcoStore();
+  try {
+    await store.iniciar();
+  } catch (error, stackTrace) {
+    debugPrint('Error al cargar EcoBrigada: $error\n$stackTrace');
+    runApp(
+      const _PantallaErrorInicio(
+        titulo: 'No se pudieron cargar los datos',
+        mensaje:
+            'Supabase se inicializó, pero EcoBrigada no pudo '
+            'cargar su información. Revisa las tablas, permisos RLS '
+            'y el error de la consola.',
+      ),
+    );
+    return;
+  }
+
+  runApp(EcoBrigadaApp(store: store));
 }
 
-class EcoBrigadaApp extends StatelessWidget {
-  const EcoBrigadaApp({super.key});
+class _PantallaErrorInicio extends StatelessWidget {
+  final String titulo;
+  final String mensaje;
+
+  const _PantallaErrorInicio({required this.titulo, required this.mensaje});
+
   @override
   Widget build(BuildContext context) => MaterialApp(
+    title: 'EcoBrigada 3.0',
     debugShowCheckedModeBanner: false,
-    title: 'EcoBrigada',
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: const Color(0xFFF4F8F4),
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF21865A)),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF21865A),
-        foregroundColor: Colors.white,
-        centerTitle: false,
+    home: Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.eco, size: 56, color: Colors.green),
+                  const SizedBox(height: 16),
+                  Text(
+                    titulo,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(mensaje, textAlign: TextAlign.center),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     ),
-    home: const AppShell(),
   );
 }
 
-class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+class EcoBrigadaApp extends StatelessWidget {
+  final EcoStore store;
+  const EcoBrigadaApp({super.key, required this.store});
   @override
-  State<AppShell> createState() => _AppShellState();
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'EcoBrigada 3.0',
+    debugShowCheckedModeBanner: false,
+    theme: ecoTheme(),
+    home: AnimatedBuilder(
+      animation: store,
+      builder: (context, _) =>
+          store.autenticado ? EcoShell(store: store) : AuthPage(store: store),
+    ),
+  );
 }
 
-class _AppShellState extends State<AppShell> {
-  int indice = 0;
-  late final StreamSubscription<AuthState> authSub;
-
+class EcoShell extends StatefulWidget {
+  final EcoStore store;
+  const EcoShell({super.key, required this.store});
   @override
-  void initState() {
-    super.initState();
-    authSub = Api.db.auth.onAuthStateChange.listen(
-      (_) {
-        if (mounted) setState(() {});
-      },
-      onError: (Object error, StackTrace stack) {
-        debugPrint('Error de sesión: $error');
-      },
+  State<EcoShell> createState() => _EcoShellState();
+}
+
+class _EcoShellState extends State<EcoShell> {
+  int indice = 0;
+  static const secciones = [
+    'Inicio',
+    'EcoMapa',
+    'Incidencias',
+    'Brigadas',
+    'EcoImpacto',
+  ];
+  static const iconos = [
+    Icons.home_outlined,
+    Icons.map_outlined,
+    Icons.assignment_outlined,
+    Icons.groups_outlined,
+    Icons.bar_chart_outlined,
+  ];
+  static const iconosActivos = [
+    Icons.home_rounded,
+    Icons.map_rounded,
+    Icons.assignment_rounded,
+    Icons.groups_rounded,
+    Icons.bar_chart_rounded,
+  ];
+
+  void cambiar(int i) => setState(() => indice = i);
+  void nuevoReporte({dynamic punto}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            NuevoReportePage(store: widget.store, initialPunto: punto),
+      ),
+    );
+  }
+
+  void detalle(String id) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DetalleReportePage(store: widget.store, id: id),
+      ),
+    );
+  }
+
+  void paginaExtra(String opcion) {
+    if (opcion == 'comunidad') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Comunidad y reciclaje')),
+            body: const PublicacionesPage(),
+          ),
+        ),
+      );
+      return;
+    }
+    if (opcion == 'lugares_originales') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Lugares comunitarios')),
+            body: const original_map.MapaPage(),
+          ),
+        ),
+      );
+      return;
+    }
+    if (opcion == 'perfil_original') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(
+              title: const Text('Puntos y solicitudes anteriores'),
+            ),
+            body: const original_profile.PerfilPage(),
+          ),
+        ),
+      );
+      return;
+    }
+    if (opcion == 'brigadas_originales') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(
+              title: const Text('Brigadas y actividades anteriores'),
+            ),
+            body: const original_brigades.BrigadasPage(),
+          ),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ExtraPage(store: widget.store, opcion: opcion),
+      ),
     );
   }
 
   @override
-  void dispose() {
-    authSub.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final conectado = Api.db.auth.currentUser != null;
-    final vistas = <Widget>[
-      const MapaPage(),
-      const BrigadasPage(),
-      const PublicacionesPage(),
-      conectado
-          ? const PerfilPage()
-          : Center(
-              child: FilledButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AuthPage()),
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.store,
+    builder: (context, _) {
+      final s = widget.store;
+      final wide = MediaQuery.sizeOf(context).width >= 950;
+      final paginas = <Widget>[
+        EcoHome(
+          store: s,
+          irA: cambiar,
+          nuevoReporte: () => nuevoReporte(),
+          verReporte: detalle,
+          irComunidad: () => paginaExtra('comunidad'),
+        ),
+        EcoMapa(
+          store: s,
+          crearEn: (p) => nuevoReporte(punto: p),
+          verReporte: detalle,
+          verBrigada: (id) => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => DetalleBrigadaPage(store: s, brigadaId: id),
+            ),
+          ),
+        ),
+        EcoIncidencias(
+          store: s,
+          nuevoReporte: () => nuevoReporte(),
+          verReporte: detalle,
+        ),
+        EcoBrigadas(store: s),
+        EcoImpacto(store: s),
+      ];
+      return Scaffold(
+        appBar: AppBar(
+          toolbarHeight: 76,
+          titleSpacing: wide ? 26 : 16,
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 41,
+                height: 41,
+                decoration: BoxDecoration(
+                  color: EcoColors.forest,
+                  borderRadius: BorderRadius.circular(13),
                 ),
-                icon: const Icon(Icons.login),
-                label: const Text('Iniciar sesión para ver perfil'),
+                child: const Icon(
+                  Icons.eco_rounded,
+                  color: EcoColors.lime,
+                  size: 25,
+                ),
+              ),
+              const SizedBox(width: 11),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'EcoBrigada',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      color: EcoColors.forest,
+                      letterSpacing: -0.6,
+                    ),
+                  ),
+                  Text(
+                    'GESTIÓN AMBIENTAL',
+                    style: TextStyle(
+                      fontSize: 9,
+                      letterSpacing: 2,
+                      fontWeight: FontWeight.w700,
+                      color: EcoColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            if (s.pendientesSinConexion > 0)
+              TextButton.icon(
+                onPressed: () async {
+                  await s.reenviarPendientes();
+                },
+                icon: const Icon(Icons.sync),
+                label: Text('${s.pendientesSinConexion} pendientes'),
+              ),
+            IconButton(
+              tooltip: 'Notificaciones',
+              icon: Badge(
+                isLabelVisible: s.notificaciones.any(
+                  (n) => n['leida_en'] == null,
+                ),
+                child: const Icon(Icons.notifications_none_rounded),
+              ),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => NotificacionesPage(store: s)),
               ),
             ),
-    ];
-    return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.eco_rounded),
-            SizedBox(width: 8),
-            Text('EcoBrigada'),
+            IconButton(
+              tooltip: 'Actualizar información',
+              onPressed: () => s.refrescar(),
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+            const SizedBox(width: 5),
+            PopupMenuButton<String>(
+              tooltip: 'Mi cuenta y opciones',
+              onSelected: (v) async {
+                if (v == 'iniciar') {
+                  if (!context.mounted) return;
+                  await Navigator.of(
+                    context,
+                  ).push(MaterialPageRoute(builder: (_) => AuthPage(store: s)));
+                } else if (v == 'perfil') {
+                  if (!context.mounted) return;
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => EcoPerfil(store: s)),
+                  );
+                } else if (v == 'salir') {
+                  await s.salir();
+                } else {
+                  paginaExtra(v);
+                }
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem<String>(
+                  enabled: false,
+                  value: 'cuenta',
+                  child: Text(
+                    s.nombreUsuario,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                if (s.autenticado)
+                  const PopupMenuItem(
+                    value: 'salir',
+                    child: Text('Cerrar sesión'),
+                  ),
+                const PopupMenuItem(value: 'perfil', child: Text('Mi perfil')),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'guias',
+                  child: Text('Guías ambientales'),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'comunidad',
+                  child: Text('Publicaciones y reciclaje'),
+                ),
+                const PopupMenuItem(
+                  value: 'lugares_originales',
+                  child: Text('Lugares comunitarios'),
+                ),
+                const PopupMenuItem(
+                  value: 'brigadas_originales',
+                  child: Text('Mis brigadas y actividades anteriores'),
+                ),
+                const PopupMenuItem(
+                  value: 'perfil_original',
+                  child: Text('Puntos y solicitudes anteriores'),
+                ),
+                const PopupMenuItem(value: 'logros', child: Text('EcoLogros')),
+                const PopupMenuItem(
+                  value: 'acerca',
+                  child: Text('Sobre EcoBrigada'),
+                ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: CircleAvatar(
+                  backgroundColor: EcoColors.mint,
+                  child: const Icon(
+                    Icons.person_outline_rounded,
+                    color: EcoColors.forest,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
-        actions: [
-          if (!conectado)
-            TextButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AuthPage()),
+        body: Row(
+          children: [
+            if (wide)
+              NavigationRail(
+                backgroundColor: Colors.white,
+                selectedIndex: indice,
+                labelType: NavigationRailLabelType.all,
+                minWidth: 104,
+                groupAlignment: -0.7,
+                onDestinationSelected: cambiar,
+                leading: const Padding(
+                  padding: EdgeInsets.only(bottom: 32),
+                  child: Icon(
+                    Icons.nature_people_rounded,
+                    color: EcoColors.green,
+                    size: 32,
+                  ),
+                ),
+                destinations: [
+                  for (var i = 0; i < secciones.length; i++)
+                    NavigationRailDestination(
+                      icon: Icon(iconos[i]),
+                      selectedIcon: Icon(iconosActivos[i]),
+                      label: Text(secciones[i]),
+                    ),
+                ],
               ),
-              icon: const Icon(Icons.login, color: Colors.white),
-              label: const Text(
-                'Ingresar',
-                style: TextStyle(color: Colors.white),
+            Expanded(child: paginas[indice]),
+          ],
+        ),
+        bottomNavigationBar: wide
+            ? null
+            : NavigationBar(
+                selectedIndex: indice,
+                onDestinationSelected: cambiar,
+                destinations: [
+                  for (var i = 0; i < secciones.length; i++)
+                    NavigationDestination(
+                      icon: Icon(iconos[i]),
+                      selectedIcon: Icon(iconosActivos[i]),
+                      label: secciones[i],
+                    ),
+                ],
               ),
-            ),
-        ],
-      ),
-      body: IndexedStack(index: indice, children: vistas),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: indice,
-        onDestinationSelected: (i) => setState(() => indice = i),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: 'Mapa',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.groups_outlined),
-            selectedIcon: Icon(Icons.groups),
-            label: 'Brigadas',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.recycling_outlined),
-            selectedIcon: Icon(Icons.recycling),
-            label: 'Reciclaje',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Perfil',
-          ),
-        ],
-      ),
-    );
-  }
+      );
+    },
+  );
 }
 
+/// Compatibilidad con las páginas Supabase originales conservadas.
 Future<bool> asegurarSesion(BuildContext context) async {
-  if (Api.db.auth.currentUser != null) return true;
-  await Navigator.of(context)
-      .push(MaterialPageRoute(builder: (_) => const AuthPage()));
-  return Api.db.auth.currentUser != null;
+  if (Supabase.instance.client.auth.currentUser != null) return true;
+  final store = context.findAncestorWidgetOfExactType<EcoShell>()?.store;
+  if (store == null) return false;
+  await Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => AuthPage(store: store)));
+  return Supabase.instance.client.auth.currentUser != null;
 }
 
 void mostrarError(BuildContext context, Object error) {
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(error.toString())));
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
 }
