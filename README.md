@@ -1,6 +1,8 @@
 <div align="center">
 
-  <img src="<img width="200" height="200" alt="icon" src="https://github.com/user-attachments/assets/517b7b55-a2d3-4ccd-99e8-bac99cc6dbdb" />" alt="EcoBrigada — Logo oficial" width="240" />
+  
+![EcoBrigada — Logo oficial](https://github.com/user-attachments/assets/517b7b55-a2d3-4ccd-99e8-bac99cc6dbdb)
+
 
   <h1>EcoBrigada</h1>
   <h3>Plataforma Comunitaria para la Recuperación de Espacios Públicos</h3>
