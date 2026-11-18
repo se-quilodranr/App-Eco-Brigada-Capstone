@@ -37,23 +37,46 @@ class EcoPanel extends StatelessWidget {
 
 class Indicador extends StatelessWidget {
   final String titulo, valor;
+  final String descripcion;
   final IconData icono;
   final Color acento;
+  final VoidCallback? onTap;
   const Indicador({super.key, required this.titulo, required this.valor,
-    required this.icono, this.acento = EcoColors.green});
+    required this.icono, this.descripcion = '', this.acento = EcoColors.green, this.onTap});
   @override
-  Widget build(BuildContext context) => EcoPanel(
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Container(width: 43, height: 43, decoration: BoxDecoration(
-        color: acento.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(13)),
-        child: Icon(icono, color: acento, size: 23)),
-      const SizedBox(height: 18),
-      Text(valor, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800,
-        color: EcoColors.forest)),
-      const SizedBox(height: 4),
-      Text(titulo, style: const TextStyle(fontSize: 12.5, color: EcoColors.muted,
-        fontWeight: FontWeight.w600)),
-    ]),
+  Widget build(BuildContext context) => Semantics(
+    button: onTap != null,
+    label: onTap == null ? '$titulo: $valor' : '$titulo: $valor. Ver detalles',
+    child: MouseRegion(
+      cursor: onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: EcoPanel(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(width: 43, height: 43, decoration: BoxDecoration(
+            color: acento.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(13)),
+            child: Icon(icono, color: acento, size: 23)),
+          const SizedBox(height: 18),
+          Text(valor, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800,
+            color: EcoColors.forest)),
+          const SizedBox(height: 4),
+          Row(children: [
+            Expanded(child: Text(titulo, style: const TextStyle(
+              fontSize: 12.5, color: EcoColors.muted,
+              fontWeight: FontWeight.w600))),
+            if (onTap != null) const Icon(Icons.arrow_forward_ios_rounded,
+              size: 13, color: EcoColors.green),
+          ]),
+          if (descripcion.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(descripcion, style: const TextStyle(
+              fontSize: 11.5, color: EcoColors.muted, height: 1.4)),
+          ],
+        ])),
+      ),
+    ),
   );
 }
 

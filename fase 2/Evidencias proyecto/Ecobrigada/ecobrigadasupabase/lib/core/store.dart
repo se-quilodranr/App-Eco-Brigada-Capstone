@@ -37,6 +37,7 @@ class EcoStore extends ChangeNotifier {
   List<Map<String,dynamic>> historialLugares=[];
   List<Map<String,dynamic>> notificaciones=[];
   List<Map<String,dynamic>> validaciones=[];
+  List<Map<String,dynamic>> informesFinales=[];
   List<Map<String,dynamic>> fotosReporte=[];
   int pendientesSinConexion=0;
   String rol='ciudadano';
@@ -71,6 +72,12 @@ class EcoStore extends ChangeNotifier {
     ..sort((a,b)=>b.fecha.compareTo(a.fecha));
   List<Map<String,dynamic>> evidenciasDe(String id)=>fotosReporte.where((m)=>m['reporte_id']==id).toList();
   List<Map<String,dynamic>> validacionesDe(String id)=>validaciones.where((m)=>m['reporte_id']==id).toList();
+  Map<String,dynamic>? informeFinalDe(String id) {
+    for (final item in informesFinales) {
+      if (item['reporte_id'] == id) return item;
+    }
+    return null;
+  }
 
   static String _str(dynamic d)=>d?.toString()??'';
   static Map<String,dynamic> _reporte(Map<String,dynamic> d)=>{
@@ -81,7 +88,7 @@ class EcoStore extends ChangeNotifier {
     ...d,'liderUid':d['lider_uid']??'', 'miembros':d['miembros']??0});
   static Jornada _jornada(Map<String,dynamic> d)=>Jornada.fromJson({...d,
     'brigadaId':d['brigada_id']??'', 'fecha':d['fecha_inicio'],
-    'lugar':d['descripcion']??d['titulo']});
+    'lugar':d['descripcion']??d['titulo'],'estado':d['estado']??'programada'});
   static SolicitudBrigada _solicitud(Map<String,dynamic> d)=>SolicitudBrigada.fromJson({
     'uid':d['usuario_id'],'brigadaId':d['brigada_id'],
     'nombre':(d['perfiles'] is Map ? d['perfiles']['nombre'] : null) ?? 'Solicitante',
@@ -120,7 +127,7 @@ class EcoStore extends ChangeNotifier {
   }
   void _limpiar(){
     reportes=[];brigadas=[];brigadasSinCoordenadas={};jornadas=[];movimientos=[];solicitudes=[];integrantes=[];
-    notificaciones=[];validaciones=[];fotosReporte=[];puntosReciclaje=[];
+    notificaciones=[];validaciones=[];informesFinales=[];fotosReporte=[];puntosReciclaje=[];
     lugaresOriginales=[];historialLugares=[];
     nombrePerfil='';rol='ciudadano';avatarPath=null;aviso=null;
     notifyListeners();
@@ -140,23 +147,37 @@ class EcoStore extends ChangeNotifier {
     return total;
   }
 
+  /// Permite mostrar información parcial aunque una tabla aún no esté migrada.
+  /// La pantalla muestra el detalle del módulo que falló para diagnóstico.
+  Future<dynamic> _consultaSegura(Future<dynamic> consulta,
+      String modulo, Object fallback, List<String> errores) async {
+    try {return await consulta;}
+    catch(e) {
+      errores.add('$modulo: $e');
+      return fallback;
+    }
+  }
+
   Future<void> refrescar() async {
     if(!autenticado)return;
     try {
+      final errores=<String>[];
       final results=await Future.wait<dynamic>([
-        _db.from('perfiles').select('id,nombre,role,avatar_path').eq('id',uid).single(),
-        _listarReportes(),
-        _db.from('brigadas').select().order('nombre').limit(300),
-        _db.from('actividades').select('id,titulo,brigada_id,descripcion,fecha_inicio').order('fecha_inicio').limit(300),
-        _db.from('brigada_miembros').select('brigada_id,usuario_id,unido_en,perfiles(nombre)').limit(2000),
-        _db.from('solicitudes').select('id,brigada_id,usuario_id,estado,enviada_en,revisada_en,revisada_por,perfiles!solicitudes_usuario_id_fkey(nombre)').isFilter('actividad_id',null).limit(2000),
-        _db.from('puntos_reciclaje').select().limit(300),
-        _db.from('notificaciones').select().eq('destinatario_uid',uid)
-          .order('creada_en',ascending:false).limit(80),
-        _db.from('lugares').select('id,nombre,descripcion,latitud,longitud,estado,actualizado_en')
-          .order('actualizado_en',ascending:false).limit(1000),
-        _db.from('lugar_historial').select('lugar_id,estado_anterior,estado_nuevo,cambiado_en')
-          .order('cambiado_en',ascending:false).limit(2000),
+        _consultaSegura(_db.from('perfiles').select('id,nombre,role,avatar_path').eq('id',uid).single(),
+          'Perfil', <String,dynamic>{'nombre':'','role':'ciudadano'}, errores),
+        _consultaSegura(_listarReportes(), 'Incidencias', <dynamic>[], errores),
+        _consultaSegura(_db.from('brigadas').select().order('nombre').limit(300),
+          'Brigadas', <dynamic>[], errores),
+        _consultaSegura(_db.from('actividades').select('id,titulo,brigada_id,descripcion,fecha_inicio,estado').order('fecha_inicio').limit(300),
+          'Jornadas', <dynamic>[], errores),
+        _consultaSegura(_db.from('brigada_miembros').select('brigada_id,usuario_id,unido_en,perfiles(nombre)').limit(2000),
+          'Integrantes', <dynamic>[], errores),
+        _consultaSegura(_db.from('solicitudes').select('id,brigada_id,usuario_id,estado,enviada_en,revisada_en,revisada_por,perfiles!solicitudes_usuario_id_fkey(nombre)').isFilter('actividad_id',null).limit(2000),
+          'Solicitudes', <dynamic>[], errores),
+        _consultaSegura(_db.from('puntos_reciclaje').select().eq('verificado', true).limit(300),
+          'Reciclaje', <dynamic>[], errores),
+        _consultaSegura(_db.from('notificaciones').select().eq('destinatario_uid',uid)
+          .order('creada_en',ascending:false).limit(80), 'Notificaciones', <dynamic>[], errores),
       ]);
       final profile=Map<String,dynamic>.from(results[0] as Map);
       nombrePerfil=_str(profile['nombre']);rol=_str(profile['role']);avatarPath=profile['avatar_path'] as String?;
@@ -169,10 +190,8 @@ class EcoStore extends ChangeNotifier {
       solicitudes=(results[5] as List).map((e)=>_solicitud(Map<String,dynamic>.from(e as Map))).toList();
       puntosReciclaje=(results[6] as List).map((e)=>PuntoReciclaje.fromJson(Map<String,dynamic>.from(e as Map))).toList();
       notificaciones=(results[7] as List).map((e)=>Map<String,dynamic>.from(e as Map)).toList();
-      lugaresOriginales=(results[8] as List).map((e)=>Map<String,dynamic>.from(e as Map)).toList();
-      historialLugares=(results[9] as List).map((e)=>Map<String,dynamic>.from(e as Map)).toList();
       pendientesSinConexion=(await cola.leer()).length;
-      aviso=null;
+      aviso=errores.isEmpty ? null : 'Carga parcial: ${errores.join(' | ')}';
       notifyListeners();
       // Un listener para el feed personal. Renovar solo al cambiar de identidad.
       _escucharNotificaciones();
@@ -323,6 +342,10 @@ class EcoStore extends ChangeNotifier {
     final rows=await _db.from('validaciones_limpieza').select().eq('reporte_id',reporteId).order('fecha',ascending:false);
     validaciones.removeWhere((r)=>r['reporte_id']==reporteId);
     validaciones.addAll(rows.map((e)=>Map<String,dynamic>.from(e)));
+    final finalRows=await _db.from('informes_finales_brigada').select()
+      .eq('reporte_id',reporteId).limit(1);
+    informesFinales.removeWhere((r)=>r['reporte_id']==reporteId);
+    informesFinales.addAll(finalRows.map((e)=>Map<String,dynamic>.from(e)));
     notifyListeners();
   }
   Future<void> actualizarAvatar(XFile imagen) async {
@@ -342,15 +365,43 @@ class EcoStore extends ChangeNotifier {
     await cargarHistorial(r.id);
     await cargarEvidencias(r.id);
   }
+  /// Solo el jefe de la brigada asignada remite la memoria de la limpieza.
+  /// La RPC verifica membresía, evidencia y estado dentro de una transacción SQL.
+  Future<void> enviarInformeFinal(Reporte reporte, {required String resumen,
+      required int participantes, required double kilosEstimados}) async {
+    if (!autenticado || reporte.brigadaId.isEmpty ||
+        !brigadas.any((b)=>b.id==reporte.brigadaId && b.liderUid==uid)) {
+      throw StateError('Solo el jefe designado puede enviar el informe final.');
+    }
+    if (resumen.trim().length < 20) {
+      throw ArgumentError('Describe el trabajo realizado (mínimo 20 caracteres).');
+    }
+    if (participantes<1 || kilosEstimados<0) {
+      throw ArgumentError('Verifica participantes y kilos estimados.');
+    }
+    await _db.rpc('eco_enviar_informe_final', params: {
+      'p_reporte':reporte.id,
+      'p_resumen':resumen.trim(),
+      'p_participantes':participantes,
+      'p_kilos_estimados':kilosEstimados,
+    });
+    await refrescarSinPendientes();
+    await cargarHistorial(reporte.id);
+    await cargarEvidencias(reporte.id);
+  }
+
   Future<void> crearBrigada({required String nombre,required String comuna,
     required String descripcion,required int miembros,required LatLng punto,
-    String? liderUid}) async {
-    if(!esAdmin)throw StateError('Solo administración puede crear brigadas.');
+    }) async {
+    if(!autenticado)throw StateError('Inicia sesión para crear una brigada.');
+    if (!esAdmin && brigadas.any((b)=>b.liderUid==uid)) {
+      throw StateError('Ya diriges una brigada. Cada usuario puede liderar un solo equipo.');
+    }
     await _db.from('brigadas').insert({
       'nombre':nombre.trim(),'comuna':comuna.trim(),
       'descripcion':descripcion.trim(),'lat':punto.latitude,'lng':punto.longitude,
       'creador_id':uid,'estado':'abierta',
-      'lider_uid':liderUid==null || liderUid.trim().isEmpty?uid:liderUid.trim()});
+      'lider_uid':uid});
     await refrescar();
   }
   Future<void> cargarParticipacion(String brigadaId) async {
@@ -394,6 +445,16 @@ class EcoStore extends ChangeNotifier {
       'fecha_inicio':fecha.toUtc().toIso8601String()});
     await refrescar();
   }
+  Future<void> cambiarEstadoJornada(Jornada jornada, String nuevoEstado) async {
+    if(!gestionaBrigada(jornada.brigadaId)) {
+      throw StateError('No tienes autorización para esta jornada.');
+    }
+    await _db.rpc('eco_cambiar_estado_jornada',params:{
+      'p_jornada':jornada.id,'p_estado':nuevoEstado,
+    });
+    await refrescar();
+  }
+
   Future<void> cargarHistorial(String reporteId) async {
     final rows=await _db.from('historial_incidencias').select().eq('reporte_id',reporteId)
       .order('fecha',ascending:false).limit(120);
@@ -401,18 +462,49 @@ class EcoStore extends ChangeNotifier {
     movimientos.addAll(rows.map((e)=>_mov(Map<String,dynamic>.from(e))));
     notifyListeners();
   }
+  /// El nombre proviene de public.perfiles (nombre + apellido), no de
+  /// un texto genérico. Incluye líderes y administradores aunque no figuren
+  /// en la lista de miembros de la brigada.
   Stream<List<MensajeBrigada>> escucharMensajes(String brigadaId) {
-    if(!puedeChatear(brigadaId))return Stream.error(StateError('Sin acceso al chat'));
-    return _db.from('mensajes').stream(primaryKey:['id'])
-      .eq('brigada_id',brigadaId).order('enviado_en',ascending:false).limit(100)
-      .map((rows)=>rows.map((e){
-        final autor=e['autor_id'];
-        String nombre='Integrante';
-        for(final miembro in integrantes){
-          if(miembro.uid==autor){nombre=miembro.nombre;break;}
+    if (!puedeChatear(brigadaId)) {
+      throw StateError('No tienes acceso al chat');
+    }
+    return _db.from('mensajes').stream(primaryKey: ['id'])
+        .eq('brigada_id', brigadaId)
+        .order('enviado_en', ascending: false)
+        .limit(100)
+        .asyncMap((rows) async {
+      final autores = rows
+          .map((e) => e['autor_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty).toSet().toList();
+      final nombres = <String, String>{};
+      for (final miembro in integrantes) {
+        if (miembro.brigadaId == brigadaId && miembro.nombre.trim().isNotEmpty) {
+          nombres[miembro.uid] = miembro.nombre;
         }
-        return _msg({...Map<String,dynamic>.from(e),'nombre':nombre});
-      }).toList().reversed.toList());
+      }
+      if (uid.isNotEmpty) nombres[uid] = nombreUsuario;
+      if (autores.isNotEmpty) {
+        try {
+          final perfiles = await _db.from('perfiles')
+              .select('id,nombre').inFilter('id', autores);
+          for (final perfil in perfiles) {
+            final id = perfil['id']?.toString() ?? '';
+            final nombre = perfil['nombre']?.toString().trim() ?? '';
+            if (id.isNotEmpty && nombre.isNotEmpty) nombres[id] = nombre;
+          }
+        } catch (_) {
+          // En caso de RLS o desconexión mantenemos los nombres accesibles
+          // de miembros y del propio usuario.
+        }
+      }
+      return rows.map((e) {
+        final id = e['autor_id']?.toString() ?? '';
+        final nombre = nombres[id];
+        return _msg({...Map<String, dynamic>.from(e),
+          'nombre': nombre == null || nombre.isEmpty ? 'Miembro de brigada' : nombre});
+      }).toList().reversed.toList();
+    });
   }
   Future<void> enviarMensaje(String brigadaId,String mensaje) async {
     final texto=mensaje.trim();

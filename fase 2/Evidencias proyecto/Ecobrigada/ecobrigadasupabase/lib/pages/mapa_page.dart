@@ -9,6 +9,33 @@ import '../core/models.dart';
 import '../core/store.dart';
 import '../widgets/common.dart';
 
+/// Reutiliza los iconos antiguos para estados reales de incidencias.
+IconData iconoIncidencia(String estado) => switch (estado) {
+  'en_proceso' => Icons.delete_outline_rounded,
+  'validado' || 'cerrado' => Icons.verified_rounded,
+  _ => Icons.location_on_rounded,
+};
+
+Color colorIncidencia(String estado) => switch (estado) {
+  'pendiente' => const Color(0xFFC94843),
+  'validado' => const Color(0xFF13845F),
+  'asignado' => const Color(0xFFD57B26),
+  'en_proceso' => const Color(0xFFCB5B3F),
+  'en_revision' => const Color(0xFF8A50BA),
+  'cerrado' => EcoColors.green,
+  'descartado' => Colors.grey,
+  _ => EcoColors.orange,
+};
+
+Widget marcadorIncidencia(Reporte reporte, {double iconSize = 23}) => Container(
+  decoration: BoxDecoration(color: colorIncidencia(reporte.estado),
+    shape: BoxShape.circle,
+    border: Border.all(color: Colors.white, width: 2),
+    boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 4)]),
+  child: Icon(iconoIncidencia(reporte.estado),
+    size: iconSize, color: Colors.white),
+);
+
 class EcoMapa extends StatefulWidget {
   final EcoStore store;
   final void Function(LatLng) crearEn;
@@ -28,18 +55,6 @@ class _EcoMapaState extends State<EcoMapa> {
   bool verZonas = true;
   bool verBrigadas = true;
   bool verReciclaje = true;
-  bool verLugaresComunitarios = true;
-
-  Color _colorPorEstado(String estado) => switch (estado) {
-    'pendiente' => const Color(0xFFC94843),
-    'validado' => const Color(0xFFE09C34),
-    'asignado' => const Color(0xFFD57B26),
-    'en_proceso' => const Color(0xFF2674C9),
-    'en_revision' => const Color(0xFF8A50BA),
-    'cerrado' => EcoColors.green,
-    'descartado' => Colors.grey,
-    _ => EcoColors.orange,
-  };
 
   Widget _leyenda(String texto, Color color) => Row(
     mainAxisSize: MainAxisSize.min, children: [
@@ -75,25 +90,6 @@ class _EcoMapaState extends State<EcoMapa> {
         'Punto registrado en EcoBrigada. Verifica las condiciones de atención antes de dirigirte.'),
       actions: [TextButton(onPressed: () => Navigator.pop(ctx),
         child: const Text('Entendido'))]));
-
-  void _mostrarLugarOriginal(Map<String,dynamic> lugar) => showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text('${lugar['nombre'] ?? 'Lugar comunitario'}'),
-      content: Text('${lugar['descripcion'] ?? ''}\n\n'
-        'Estado actual: ${lugar['estado']=='limpio'?'Limpio':'Con residuos'}\n'
-        'Este punto procede del registro existente en tu Supabase.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx),child: const Text('Cerrar')),
-        FilledButton(onPressed: () async {
-          final nuevo = lugar['estado']=='limpio'?'sucio':'limpio';
-          Navigator.pop(ctx);
-          try { await widget.store.marcarLugarOriginal('${lugar['id']}',nuevo); }
-          catch (e) {if (mounted) mostrarError(context,e);}
-        },child: Text(lugar['estado']=='limpio'?'Marcar con residuos':'Marcar limpio')),
-      ],
-    ),
-  );
 
   Future<void> localizar() async {
     try {
@@ -136,13 +132,6 @@ class _EcoMapaState extends State<EcoMapa> {
     final puntosReciclaje = widget.store.puntosReciclaje.where((p) =>
       usuario == null || const Distance().as(LengthUnit.Kilometer,
         usuario!, p.punto) <= radio).toList();
-    final lugaresOriginales = widget.store.lugaresOriginales.where((l) {
-      final lat = (l['latitud'] as num?)?.toDouble();
-      final lng = (l['longitud'] as num?)?.toDouble();
-      if(lat==null || lng==null || lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
-      return usuario==null || const Distance().as(LengthUnit.Kilometer,
-        usuario!,LatLng(lat,lng))<=radio;
-    }).toList();
     final compact = MediaQuery.sizeOf(context).width < 680;
     return Padding(padding: EdgeInsets.fromLTRB(compact ? 12 : 26, 12,
       compact ? 12 : 26, 16), child: Column(children: [
@@ -214,13 +203,10 @@ class _EcoMapaState extends State<EcoMapa> {
                       ),
                     ),
                 for (final r in reportes)
-                  Marker(point: r.punto, width: 44, height: 50,
+                  Marker(point: r.punto, width: 42, height: 42,
                     child: Tooltip(message: '${estadoNombre(r.estado)} · ${r.titulo}',
                       child: InkWell(onTap: () => widget.verReporte(r.id),
-                        child: Icon(Icons.location_on_rounded,
-                          color: _colorPorEstado(r.estado), size: 43,
-                          shadows: const [Shadow(color: Colors.white,
-                            blurRadius: 6)])))),
+                        child: marcadorIncidencia(r)))),
                 if (verBrigadas)
                   for (final b in equipoVisibles)
                     Marker(point: b.punto, width: 40, height: 40,
@@ -232,21 +218,6 @@ class _EcoMapaState extends State<EcoMapa> {
                               border: Border.all(color: Colors.white, width: 2)),
                             child: const Icon(Icons.groups_rounded,
                               color: Colors.white, size: 23))))),
-                if (verLugaresComunitarios)
-                  for (final l in lugaresOriginales)
-                    Marker(point: LatLng((l['latitud'] as num).toDouble(),
-                        (l['longitud'] as num).toDouble()), width: 40, height: 42,
-                      child: Tooltip(message: '${l['nombre']} · ${l['estado']}',
-                        child: InkWell(onTap: () => _mostrarLugarOriginal(l),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: l['estado']=='limpio' ? EcoColors.green :
-                                const Color(0xFFC94843),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white,width: 2)),
-                            child: Icon(l['estado']=='limpio' ? Icons.verified_outlined :
-                                Icons.delete_outline_rounded,
-                              size: 23,color: Colors.white))))),
                 if (verReciclaje)
                   for (final p in puntosReciclaje)
                     Marker(point: p.punto, width: 39, height: 39,
@@ -291,11 +262,6 @@ class _EcoMapaState extends State<EcoMapa> {
                   icon: Icon(Icons.groups_outlined,
                     color: verBrigadas ? Colors.blue.shade700 : EcoColors.muted)),
                 IconButton(
-                  tooltip: verLugaresComunitarios ? 'Ocultar lugares comunitarios' : 'Ver lugares comunitarios',
-                  onPressed: () => setState(() => verLugaresComunitarios = !verLugaresComunitarios),
-                  icon: Icon(Icons.place_outlined,
-                    color: verLugaresComunitarios ? EcoColors.green : EcoColors.muted)),
-                IconButton(
                   tooltip: verReciclaje ? 'Ocultar puntos de reciclaje' : 'Ver puntos de reciclaje',
                   onPressed: () => setState(() => verReciclaje = !verReciclaje),
                   icon: Icon(Icons.recycling_rounded,
@@ -331,58 +297,90 @@ class _EcoMapaState extends State<EcoMapa> {
       Wrap(spacing: 10, runSpacing: 4, alignment: WrapAlignment.center,
         children: [
           _leyenda('Pendiente', const Color(0xFFC94843)),
-          _leyenda('En ejecución', const Color(0xFF2674C9)),
+          _leyenda('En proceso (basurero)', const Color(0xFFCB5B3F)),
           _leyenda('En revisión', const Color(0xFF8A50BA)),
-          _leyenda('Cerrado', EcoColors.green),
+          _leyenda('Validado o cerrado (✓)', EcoColors.green),
           _leyenda('Brigadas', Colors.blue.shade700),
           _leyenda('Reciclaje', const Color(0xFF16856B)),
-          _leyenda('Lugares comunitarios', const Color(0xFFC94843)),
         ]),
       const SizedBox(height: 4),
       const Text('Los marcadores provienen de los registros Supabase. '
         'El filtro por radio se aplica al activar GPS. Los puntos de reciclaje '
-        'solo aparecen si fueron verificados. Los lugares comunitarios '
-        'conservan sus estados originales.',
+        'solo aparecen si fueron verificados. El basurero identifica '
+        'incidencias en proceso y el visto bueno indica casos validados o cerrados. '
+        'Algunos datos pueden pertenecer a una demostración; confirma siempre la ubicación.',
         textAlign: TextAlign.center,
         style: TextStyle(color: EcoColors.muted, fontSize: 10)),
     ]));
   }
 }
 
-/// Selector geográfico: toca el mapa para fijar coordenadas al crear un reporte.
+/// Selector geográfico de reportes y brigadas: muestra incidencias existentes.
 class SelectorPunto extends StatefulWidget {
   final LatLng inicial;
   final ValueChanged<LatLng> onChanged;
-  const SelectorPunto({super.key, required this.inicial, required this.onChanged});
+  final List<Reporte> reportes;
+  final ValueChanged<String>? verReporte;
+  const SelectorPunto({super.key, required this.inicial,
+    required this.onChanged, this.reportes = const [], this.verReporte});
   @override
   State<SelectorPunto> createState() => _SelectorPuntoState();
 }
 
 class _SelectorPuntoState extends State<SelectorPunto> {
   late LatLng seleccionado = widget.inicial;
+
   @override
-  Widget build(BuildContext context) => Column(children: [
-    const Align(alignment: Alignment.centerLeft,
-      child: Text('Ubicación: toca el mapa para colocar el marcador',
-        style: TextStyle(fontWeight: FontWeight.w700))),
-    const SizedBox(height: 10),
-    SizedBox(height: 220, child: ClipRRect(borderRadius: BorderRadius.circular(16),
-      child: FlutterMap(options: MapOptions(initialCenter: seleccionado,
-        initialZoom: 13, onTap: (_, p) {
-          setState(() => seleccionado = p);
-          widget.onChanged(p);
-        }), children: [
-          TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'cl.ecobrigada.capstone'),
-          MarkerLayer(markers: [Marker(point: seleccionado,
-            width: 45, height: 45,
-            child: const Icon(Icons.location_pin, color: EcoColors.green, size: 45))]),
-          RichAttributionWidget(attributions: [
-            TextSourceAttribution('© OpenStreetMap contributors', onTap: () {}),
-          ]),
-        ]))),
-    const SizedBox(height: 5),
-    Text('${seleccionado.latitude.toStringAsFixed(5)}, ${seleccionado.longitude.toStringAsFixed(5)}',
-      style: const TextStyle(color: EcoColors.muted, fontSize: 11)),
-  ]);
+  Widget build(BuildContext context) {
+    // Los más cercanos: no llenar el mapa pequeño con cientos de marcadores.
+    final cercanos = [...widget.reportes]..sort((a, b) =>
+      const Distance().as(LengthUnit.Meter, seleccionado, a.punto).compareTo(
+      const Distance().as(LengthUnit.Meter, seleccionado, b.punto)));
+    final visibles = cercanos.take(70).toList();
+    return Column(children: [
+      const Align(alignment: Alignment.centerLeft,
+        child: Text('Ubicación: toca el mapa para colocar el marcador',
+          style: TextStyle(fontWeight: FontWeight.w700))),
+      const SizedBox(height: 10),
+      SizedBox(height: 265, child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: FlutterMap(
+          options: MapOptions(initialCenter: seleccionado,
+            initialZoom: 13, onTap: (_, p) {
+              setState(() => seleccionado = p);
+              widget.onChanged(p);
+            }),
+          children: [
+            TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'cl.ecobrigada.capstone'),
+            MarkerLayer(markers: [
+              for (final r in visibles)
+                Marker(point: r.punto, width: 31, height: 31,
+                  child: Tooltip(message: '${estadoNombre(r.estado)} · ${r.titulo}',
+                    child: InkWell(
+                      onTap: widget.verReporte == null ? null
+                        : () => widget.verReporte!(r.id),
+                      child: marcadorIncidencia(r, iconSize: 18)))),
+              Marker(point: seleccionado, width: 50, height: 50,
+                child: const Icon(Icons.location_pin,
+                  color: EcoColors.green, size: 48,
+                  shadows: [Shadow(color: Colors.white, blurRadius: 5)])),
+            ]),
+            RichAttributionWidget(attributions: [
+              TextSourceAttribution('© OpenStreetMap contributors', onTap: () {}),
+            ]),
+          ],
+        ),
+      )),
+      const SizedBox(height: 5),
+      Text('${seleccionado.latitude.toStringAsFixed(5)}, '
+        '${seleccionado.longitude.toStringAsFixed(5)}',
+        style: const TextStyle(color: EcoColors.muted, fontSize: 11)),
+      if (widget.reportes.isNotEmpty)
+        Text('Hasta ${visibles.length} incidencias cercanas. '
+          'Basurero: en proceso · ✓: validada/cerrada · Verde: nuevo punto',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: EcoColors.muted, fontSize: 11)),
+    ]);
+  }
 }

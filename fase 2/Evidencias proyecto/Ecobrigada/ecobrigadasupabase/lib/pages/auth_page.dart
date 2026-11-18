@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/design.dart';
 import '../core/registro_validacion.dart';
 import '../core/store.dart';
@@ -49,6 +50,20 @@ class _AuthPageState extends State<AuthPage> {
         await widget.store.acceder(correo.text, clave.text);
       }
       if (mounted && Navigator.of(context).canPop()) Navigator.pop(context);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      // Supabase no distingue públicamente entre correo inexistente y clave mala.
+      final credencialesInvalidas = !registro && (
+        e.code == 'invalid_credentials' ||
+        e.message.toLowerCase().contains('invalid login credentials') ||
+        e.message.toLowerCase().contains('invalid credentials'));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(credencialesInvalidas
+          ? 'Correo o contraseña incorrectos'
+          : 'No fue posible ingresar: ${e.message}'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.red.shade700,
+      ));
     } catch (e) {
       if (mounted && e.toString().contains('Verifica tu correo')) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));

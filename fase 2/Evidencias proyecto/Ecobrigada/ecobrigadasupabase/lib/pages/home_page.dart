@@ -6,11 +6,14 @@ import '../widgets/common.dart';
 class EcoHome extends StatelessWidget {
   final EcoStore store;
   final void Function(int) irA;
+  final void Function(String) abrirIncidencias;
+  final void Function(String) abrirBrigadas;
   final VoidCallback nuevoReporte;
   final VoidCallback irComunidad;
   final void Function(String) verReporte;
   const EcoHome({super.key, required this.store, required this.irA,
-    required this.nuevoReporte, required this.verReporte, required this.irComunidad});
+    required this.nuevoReporte, required this.verReporte, required this.irComunidad,
+    required this.abrirIncidencias, required this.abrirBrigadas});
 
   @override
   Widget build(BuildContext context) {
@@ -40,14 +43,18 @@ class EcoHome extends StatelessWidget {
           subtitle: 'Indicadores de la plataforma'),
         responsiveWrap([
           Indicador(titulo: 'Incidencias activas', valor: '${store.activos}',
-            icono: Icons.warning_amber_rounded, acento: EcoColors.orange),
+            icono: Icons.warning_amber_rounded, acento: EcoColors.orange,
+            onTap: () => abrirIncidencias('Activos')),
           Indicador(titulo: 'Casos resueltos', valor: '${store.cerrados}',
-            icono: Icons.verified_outlined),
+            icono: Icons.verified_outlined,
+            onTap: () => abrirIncidencias('cerrado')),
           Indicador(titulo: 'Brigadas disponibles',
             valor: '${store.brigadas.where((b) => b.disponible).length}',
-            icono: Icons.groups_outlined),
+            icono: Icons.groups_outlined,
+            onTap: () => abrirBrigadas('Disponibles')),
           Indicador(titulo: 'Jornadas organizadas', valor: '${store.jornadas.length}',
-            icono: Icons.event_available_outlined),
+            icono: Icons.event_available_outlined,
+            onTap: () => abrirBrigadas('Jornadas')),
         ], width: 220),
         const SizedBox(height: 31),
         const EcoSection(title: '¿Qué quieres hacer hoy?',

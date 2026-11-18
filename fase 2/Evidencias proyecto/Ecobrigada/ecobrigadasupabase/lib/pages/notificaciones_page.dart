@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/store.dart';
+import '../core/models.dart';
 import '../core/design.dart';
 import '../widgets/common.dart';
 
@@ -23,8 +24,8 @@ class NotificacionesPage extends StatelessWidget {
           return Card(color:leida?null:EcoColors.mint,child:ListTile(
             leading:Icon(leida?Icons.notifications_none:Icons.notifications_active,
               color:EcoColors.green),
-            title:Text('${n['titulo']??'Aviso'}'),
-            subtitle:Text('${n['cuerpo']??''}'),
+            title:Text(etiquetaVisible('${n['titulo']??'Aviso'}')), 
+            subtitle:Text(etiquetaVisible('${n['cuerpo']??''}')), 
             trailing:leida?null:const Icon(Icons.circle,size:10,color:EcoColors.green),
             onTap:() async{
               if(!leida){try{await store.marcarNotificacion('${n['id']}');}

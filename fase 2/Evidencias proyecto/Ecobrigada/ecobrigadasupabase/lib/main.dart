@@ -18,9 +18,7 @@ import 'pages/extra_page.dart';
 import 'pages/perfil_page.dart';
 import 'pages/notificaciones_page.dart';
 import 'original/publicaciones_page.dart';
-import 'original/mapa_page.dart' as original_map;
 import 'original/brigadas_page.dart' as original_brigades;
-import 'original/perfil_page.dart' as original_profile;
 
 // OPCIÓN 1: pega aquí los datos de Project Settings > API Keys / Connect.
 // Solo utiliza la Project URL y la Publishable Key (sb_publishable_...).
@@ -174,6 +172,19 @@ class EcoShell extends StatefulWidget {
 
 class _EcoShellState extends State<EcoShell> {
   int indice = 0;
+  String filtroIncidencias = 'Todos';
+  String vistaBrigadas = 'Todas';
+  int revisionIncidencias = 0;
+
+  void abrirIncidencias(String filtro) => setState(() {
+    filtroIncidencias = filtro;
+    revisionIncidencias++;
+    indice = 2;
+  });
+  void abrirBrigadas(String vista) => setState(() {
+    vistaBrigadas = vista;
+    indice = 3;
+  });
   static const secciones = [
     'Inicio',
     'EcoMapa',
@@ -196,7 +207,14 @@ class _EcoShellState extends State<EcoShell> {
     Icons.bar_chart_rounded,
   ];
 
-  void cambiar(int i) => setState(() => indice = i);
+  void cambiar(int i) => setState(() {
+    indice = i;
+    if (i == 2) {
+      filtroIncidencias = 'Todos';
+      revisionIncidencias++;
+    }
+    if (i == 3) vistaBrigadas = 'Todas';
+  });
   void nuevoReporte({dynamic punto}) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -221,30 +239,6 @@ class _EcoShellState extends State<EcoShell> {
           builder: (_) => Scaffold(
             appBar: AppBar(title: const Text('Comunidad y reciclaje')),
             body: const PublicacionesPage(),
-          ),
-        ),
-      );
-      return;
-    }
-    if (opcion == 'lugares_originales') {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => Scaffold(
-            appBar: AppBar(title: const Text('Lugares comunitarios')),
-            body: const original_map.MapaPage(),
-          ),
-        ),
-      );
-      return;
-    }
-    if (opcion == 'perfil_original') {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => Scaffold(
-            appBar: AppBar(
-              title: const Text('Puntos y solicitudes anteriores'),
-            ),
-            body: const original_profile.PerfilPage(),
           ),
         ),
       );
@@ -280,6 +274,8 @@ class _EcoShellState extends State<EcoShell> {
         EcoHome(
           store: s,
           irA: cambiar,
+          abrirIncidencias: abrirIncidencias,
+          abrirBrigadas: abrirBrigadas,
           nuevoReporte: () => nuevoReporte(),
           verReporte: detalle,
           irComunidad: () => paginaExtra('comunidad'),
@@ -295,11 +291,14 @@ class _EcoShellState extends State<EcoShell> {
           ),
         ),
         EcoIncidencias(
+          key: ValueKey(revisionIncidencias),
           store: s,
           nuevoReporte: () => nuevoReporte(),
           verReporte: detalle,
+          filtroInicial: filtroIncidencias,
         ),
-        EcoBrigadas(store: s),
+        EcoBrigadas(store: s, vista: vistaBrigadas,
+          cambiarVista: (v) => setState(() => vistaBrigadas = v)),
         EcoImpacto(store: s),
       ];
       return Scaffold(
@@ -420,16 +419,8 @@ class _EcoShellState extends State<EcoShell> {
                   child: Text('Publicaciones y reciclaje'),
                 ),
                 const PopupMenuItem(
-                  value: 'lugares_originales',
-                  child: Text('Lugares comunitarios'),
-                ),
-                const PopupMenuItem(
                   value: 'brigadas_originales',
                   child: Text('Mis brigadas y actividades anteriores'),
-                ),
-                const PopupMenuItem(
-                  value: 'perfil_original',
-                  child: Text('Puntos y solicitudes anteriores'),
                 ),
                 const PopupMenuItem(value: 'logros', child: Text('EcoLogros')),
                 const PopupMenuItem(

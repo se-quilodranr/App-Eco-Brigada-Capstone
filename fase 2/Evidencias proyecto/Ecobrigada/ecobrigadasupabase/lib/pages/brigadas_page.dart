@@ -10,7 +10,10 @@ import 'chat_brigada_page.dart';
 
 class EcoBrigadas extends StatelessWidget {
   final EcoStore store;
-  const EcoBrigadas({super.key, required this.store});
+  final String vista;
+  final ValueChanged<String> cambiarVista;
+  const EcoBrigadas({super.key, required this.store,
+    required this.vista, required this.cambiarVista});
 
   Future<void> _crearJornada(BuildContext context) async {
     final gestionables = store.brigadas.where((b) => store.gestionaBrigada(b.id)).toList();
@@ -70,16 +73,32 @@ class EcoBrigadas extends StatelessWidget {
             Text('Equipos que transforman las comunidades',
               style: TextStyle(color: EcoColors.muted, fontSize: 12)),
           ])),
-        if (store.esAdmin) IconButton.filledTonal(tooltip: 'Crear brigada',
+        if (store.autenticado) IconButton.filledTonal(tooltip: 'Crear brigada',
           onPressed: () => Navigator.push(context, MaterialPageRoute(
             builder: (_) => NuevaBrigadaPage(store: store))),
           icon: const Icon(Icons.add)),
       ]),
+      const SizedBox(height: 14),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final opcion in ['Todas', 'Disponibles', 'Jornadas'])
+          ChoiceChip(label: Text(opcion),
+            selected: vista == opcion,
+            onSelected: (_) => cambiarVista(opcion)),
+      ]),
       const SizedBox(height: 22),
-      const EcoSection(title: 'Equipos comunitarios'),
-      if (store.brigadas.isEmpty) const EmptyEco(titulo: 'Aún no hay brigadas',
-        descripcion: 'Un administrador puede registrar la primera.'),
-      for (final b in store.brigadas) ...[
+      if (vista != 'Jornadas') const EcoSection(title: 'Equipos comunitarios'),
+      if (vista != 'Jornadas') const Padding(padding: EdgeInsets.only(bottom: 12),
+        child: Text('Cada brigada tiene un jefe único. El jefe aprueba las solicitudes, organiza jornadas y envía la memoria final de las limpiezas asignadas.',
+          style: TextStyle(color: EcoColors.muted, fontSize: 12))),
+      if (vista != 'Jornadas' && !store.brigadas.any((b) =>
+          vista != 'Disponibles' || b.disponible))
+        EmptyEco(
+          titulo: vista == 'Disponibles'
+            ? 'No hay brigadas disponibles' : 'Aún no hay brigadas',
+          descripcion: 'Revisa otras brigadas o vuelve más adelante.'),
+      if (vista != 'Jornadas')
+        for (final b in store.brigadas.where((b) =>
+          vista != 'Disponibles' || b.disponible)) ...[
         InkWell(onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => DetalleBrigadaPage(store: store, brigadaId: b.id))),
           child: EcoPanel(child: Row(children: [
@@ -119,7 +138,7 @@ class EcoBrigadas extends StatelessWidget {
         const SizedBox(height: 12),
       ],
       const SizedBox(height: 20),
-      EcoSection(title: 'Jornadas programadas',
+      EcoSection(title: 'Calendario de jornadas',
         subtitle: 'Planificación de operativos comunitarios',
         trailing: store.brigadas.any((b) => store.gestionaBrigada(b.id))
           ? TextButton.icon(onPressed: () => _crearJornada(context),
@@ -144,8 +163,27 @@ class EcoBrigadas extends StatelessWidget {
               Text(j.titulo, style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 5),
               Text(j.lugar, style: const TextStyle(color: EcoColors.muted)),
+              const SizedBox(height: 4),
+              Text(j.estado == 'finalizada' ? 'Finalizada' : j.estado == 'en_curso' ? 'En curso' : 'Programada',
+                style: TextStyle(fontSize: 11, color: j.estado == 'finalizada' ? EcoColors.muted : EcoColors.green)),
             ])),
-          const Icon(Icons.event_available_outlined, color: EcoColors.green),
+          if (store.gestionaBrigada(j.brigadaId) && j.estado != 'finalizada')
+            TextButton.icon(
+              onPressed: () async {
+                try {
+                  await store.cambiarEstadoJornada(j,
+                    j.estado == 'programada' ? 'en_curso' : 'finalizada');
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Jornada actualizada.')));
+                  }
+                } catch (e) {if (context.mounted) mostrarError(context,e);}
+              },
+              icon: Icon(j.estado=='programada'
+                ? Icons.play_arrow_rounded : Icons.check_circle_outline),
+              label: Text(j.estado=='programada' ? 'Iniciar' : 'Finalizar'))
+          else
+            const Icon(Icons.event_available_outlined, color: EcoColors.green),
         ])),
         const SizedBox(height: 10),
       ],
@@ -164,13 +202,12 @@ class _NuevaBrigadaPageState extends State<NuevaBrigadaPage> {
   final nombre = TextEditingController();
   final comuna = TextEditingController(text: 'Concepción');
   final descripcion = TextEditingController();
-  final lider = TextEditingController();
   int miembros = 1;
   LatLng punto = ecoCentro;
   bool cargando = false;
   @override
   void dispose() {
-    nombre.dispose(); comuna.dispose(); descripcion.dispose(); lider.dispose();
+    nombre.dispose(); comuna.dispose(); descripcion.dispose();
     super.dispose();
   }
   Future<void> guardar() async {
@@ -178,8 +215,7 @@ class _NuevaBrigadaPageState extends State<NuevaBrigadaPage> {
     try {
       await widget.store.crearBrigada(nombre: nombre.text,
         comuna: comuna.text, descripcion: descripcion.text,
-        miembros: miembros, punto: punto, liderUid: lider.text.trim().isEmpty
-          ? null : lider.text.trim());
+        miembros: miembros, punto: punto);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) mostrarError(context, e);
@@ -197,11 +233,9 @@ class _NuevaBrigadaPageState extends State<NuevaBrigadaPage> {
         const SizedBox(height: 12),
         TextField(controller: comuna, decoration: const InputDecoration(labelText: 'Comuna')),
         const SizedBox(height: 12),
-        ...[
-          TextField(controller: lider, decoration: const InputDecoration(
-            labelText: 'UID de líder (Supabase Auth, opcional)')),
-          const SizedBox(height: 12),
-        ],
+        const Text('Al crear esta brigada serás su jefe y podrás gestionar solicitudes, el chat y las jornadas. Solo puedes dirigir una brigada.',
+          style: TextStyle(color: EcoColors.muted, fontSize: 12)),
+        const SizedBox(height: 12),
         const Text('Los integrantes se registran mediante solicitudes aprobadas.',
           style: TextStyle(color: EcoColors.muted, fontSize: 12)),
         const SizedBox(height: 12),
@@ -320,10 +354,6 @@ class _DetalleBrigadaPageState extends State<DetalleBrigadaPage> {
                 const SizedBox(height: 8),
                 Text('Responsable: $liderNombre',
                   style: const TextStyle(color: EcoColors.muted, fontSize: 12)),
-                if (b.nombre.toLowerCase().contains('ficticia'))
-                  const Padding(padding: EdgeInsets.only(top: 8),
-                    child: Text('Brigada de prueba: equipo y ubicación ficticios.',
-                      style: TextStyle(color: EcoColors.orange, fontSize: 12))),
                 if (soyLider) const Padding(padding: EdgeInsets.only(top: 7),
                   child: Text('Eres líder de esta brigada.',
                     style: TextStyle(color: EcoColors.green))),

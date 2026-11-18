@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/design.dart';
 import '../core/store.dart';
 import '../widgets/common.dart';
+import 'mi_actividad_page.dart';
 
 class EcoPerfil extends StatelessWidget {
   final EcoStore store;
@@ -14,6 +15,11 @@ class EcoPerfil extends StatelessWidget {
     final rol = store.esAdmin ? 'Administrador' :
       store.esBrigadista ? 'Líder de brigada' : 'Ciudadano';
     final propios = store.reportes.where((r) => r.creadorUid == store.uid).length;
+    final lidero = store.brigadas.where((b) => b.liderUid == store.uid).length;
+    final pertenezco = store.brigadas.where((b) =>
+      b.liderUid != store.uid && store.soyIntegrante(b.id)).length;
+    void abrirActividad(String tipo) => Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => MiActividadPage(store: store, tipo: tipo)));
     return Scaffold(appBar: AppBar(title: const Text('Mi perfil')),
       body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680),
         child: ListView(padding: const EdgeInsets.all(22), children: [
@@ -46,10 +52,14 @@ class EcoPerfil extends StatelessWidget {
           const EcoSection(title: 'Mi actividad'),
           responsiveWrap([
             Indicador(titulo: 'Mis reportes', valor: '$propios',
-              icono: Icons.assignment_outlined),
-            Indicador(titulo: 'Brigadas que lidero',
-              valor: '${store.brigadas.where((b) => b.liderUid == store.uid).length}',
-              icono: Icons.groups_outlined),
+              icono: Icons.assignment_outlined,
+              onTap: () => abrirActividad('reportes')),
+            Indicador(titulo: 'Brigadas que lidero', valor: '$lidero',
+              icono: Icons.groups_outlined,
+              onTap: () => abrirActividad('lidero')),
+            Indicador(titulo: 'Brigadas a las que pertenezco',
+              valor: '$pertenezco', icono: Icons.diversity_3_outlined,
+              onTap: () => abrirActividad('integrante')),
           ]),
           const SizedBox(height: 21),
           const SizedBox(height:17),

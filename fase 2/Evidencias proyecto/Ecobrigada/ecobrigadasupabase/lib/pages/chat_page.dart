@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../services/api.dart';
+import '../core/models.dart';
 
 class ChatPage extends StatefulWidget {
   final String brigadaId;
@@ -30,14 +31,28 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> cargarNombres() async {
     try {
       final rows = await Api.miembros(widget.brigadaId);
+      final porId = <String, String>{
+        for (final r in rows)
+          r['usuario_id'].toString():
+              (r['perfiles'] as Map?)?['nombre']?.toString() ?? 'Brigadista',
+      };
+      final mensajes = await Api.db.from('mensajes')
+          .select('autor_id').eq('brigada_id', widget.brigadaId).limit(100);
+      final autores = <String>{...porId.keys};
+      for (final m in mensajes) {
+        final id = m['autor_id']?.toString();
+        if (id != null && id.isNotEmpty) autores.add(id);
+      }
+      if (autores.isNotEmpty) {
+        final perfiles = await Api.db.from('perfiles')
+            .select('id,nombre').inFilter('id', autores.toList());
+        for (final perfil in perfiles) {
+          final nombre = perfil['nombre']?.toString().trim() ?? '';
+          if (nombre.isNotEmpty) porId[perfil['id'].toString()] = nombre;
+        }
+      }
       if (!mounted) return;
-      setState(
-        () => nombres = {
-          for (final r in rows)
-            r['usuario_id'].toString():
-                (r['perfiles'] as Map?)?['nombre']?.toString() ?? 'Brigadista',
-        },
-      );
+      setState(() => nombres = porId);
     } catch (e) {
       if (mounted) mostrarError(context, e);
     }
@@ -64,7 +79,7 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text('Chat · ${widget.nombreBrigada}')),
+    appBar: AppBar(title: Text('Chat · ${etiquetaVisible(widget.nombreBrigada)}')),
     body: Column(
       children: [
         Expanded(
@@ -107,14 +122,15 @@ class _ChatPageState extends State<ChatPage> {
                             children: [
                               Text(
                                 nombres[m['autor_id'].toString()] ??
-                                    'Brigadista',
+                                    (m['autor_id'] == Api.db.auth.currentUser?.id
+                                      ? 'Tú' : 'Miembro de brigada'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF21865A),
                                 ),
                               ),
                               const SizedBox(height: 4),
-                              Text(m['texto'].toString()),
+                              Text(etiquetaVisible(m['texto'].toString())),
                             ],
                           ),
                         ),
