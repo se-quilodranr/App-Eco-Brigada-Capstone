@@ -1,0 +1,16 @@
+ECOBRIGADA 3.1 - PANEL DE ADMINISTRACION WEB
+==========================================
+1. SUPABASE > SQL Editor: pegar y ejecutar TODO el archivo:
+   supabase/20261118_panel_admin.sql
+
+2. POWERSHELL dentro de esta carpeta:
+   powershell -ExecutionPolicy Bypass -File .\INICIAR_PANEL.ps1
+
+3. ABRIR EN OPERA O EDGE:
+   http://localhost:8081
+
+4. INICIAR SESION con tu cuenta que tenga role='admin'
+   en la tabla public.perfiles del MISMO Supabase.
+
+No necesitas Node.js, no modificas lib/ de Flutter y no debes usar
+service_role en el navegador.

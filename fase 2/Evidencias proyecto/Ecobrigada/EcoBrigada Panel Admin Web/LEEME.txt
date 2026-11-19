@@ -1,0 +1,18 @@
+CORRECCION MIME DEL PANEL ECOBRIGADA
+
+Causa: python -m http.server en algunos equipos Windows sirve .js como text/plain.
+Los navegadores rechazan scripts type="module" con ese Content-Type.
+
+1. Detener el servidor anterior con Ctrl+C.
+2. Copiar INICIAR_PANEL.ps1 y SERVIDOR_PANEL.py en D:\Descargas\EcoBrigada_Panel_Admin_Web\
+3. Reemplazar INICIAR_PANEL.ps1 cuando Windows lo solicite.
+4. En PowerShell, en esa carpeta, ejecutar:
+
+   powershell -ExecutionPolicy Bypass -File .\INICIAR_PANEL.ps1
+
+5. Abrir http://localhost:8081 y pulsar Ctrl+F5.
+
+Debe aparecer el inicio de sesion y no el mensaje persistente "Preparando EcoBrigada".
+Si persiste, abrir F12 > Console para ver el siguiente error.
+
+No hay que modificar Flutter ni ejecutar SQL. No incluyas la service_role en config.js.
