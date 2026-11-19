@@ -1,8 +1,9 @@
+import 'package:ecobrigadasupabase/widgets/common.dart' hide mostrarError;
 import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../services/api.dart';
-import '../core/models.dart';
+
 
 class ChatPage extends StatefulWidget {
   final String brigadaId;

@@ -1,5 +1,5 @@
+import 'package:ecobrigadasupabase/widgets/common.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ecobrigadasupabase/core/models.dart';
 
 void main() {
   test('los titulos de incidencias no muestran etiquetas de datos demo', () {

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
@@ -9,13 +8,13 @@ import '../core/models.dart';
 import '../core/store.dart';
 import '../widgets/common.dart';
 import 'mapa_page.dart';
-import '../services/reverse_geocoding.dart';
 
 class EcoIncidencias extends StatefulWidget {
   final EcoStore store;
   final VoidCallback nuevoReporte;
   final void Function(String) verReporte;
   final String filtroInicial;
+
   const EcoIncidencias({
     super.key,
     required this.store,
@@ -23,26 +22,41 @@ class EcoIncidencias extends StatefulWidget {
     required this.verReporte,
     this.filtroInicial = 'Todos',
   });
+
   @override
   State<EcoIncidencias> createState() => _EcoIncidenciasState();
 }
 
 class _EcoIncidenciasState extends State<EcoIncidencias> {
-  late String filtro = widget.filtroInicial;
+  late String filtro;
   String texto = '';
+
+  @override
+  void initState() {
+    super.initState();
+    filtro = widget.filtroInicial;
+  }
+
   @override
   void didUpdateWidget(covariant EcoIncidencias oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     if (oldWidget.filtroInicial != widget.filtroInicial) {
       filtro = widget.filtroInicial;
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final reportes = widget.store.recientes.where((r) {
-      if (filtro == 'Activos' && !r.abierto) return false;
-      if (filtro != 'Todos' && filtro != 'Activos' && r.estado != filtro) return false;
+      if (filtro == 'Activos') {
+        if (!r.abierto) return false;
+      } else if (filtro != 'Todos' && r.estado != filtro) {
+        return false;
+      }
+
       final q = texto.toLowerCase();
+
       return r.titulo.toLowerCase().contains(q) ||
           r.comuna.toLowerCase().contains(q) ||
           r.tipo.toLowerCase().contains(q);
@@ -94,15 +108,19 @@ class _EcoIncidenciasState extends State<EcoIncidencias> {
                 key: ValueKey(filtro),
                 initialValue: filtro,
                 decoration: const InputDecoration(labelText: 'Estado'),
-                items: ['Todos', 'Activos', ...estadosReporte]
-                    .map(
-                      (e) => DropdownMenuItem(
-                        value: e,
-                        child: Text(e == 'Todos' ? e : estadoNombre(e)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => filtro = v ?? 'Todos'),
+                items: <String>{'Todos', 'Activos', ...estadosReporte}.map((e) {
+                  return DropdownMenuItem<String>(
+                    value: e,
+                    child: Text(
+                      e == 'Todos' || e == 'Activos' ? e : estadoNombre(e),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (v) {
+                  setState(() {
+                    filtro = v ?? 'Todos';
+                  });
+                },
               ),
             ],
           ),
@@ -143,87 +161,15 @@ class _NuevoReportePageState extends State<NuevoReportePage> {
   final titulo = TextEditingController();
   final descripcion = TextEditingController();
   final direccion = TextEditingController();
-  final comuna = TextEditingController();
+  final comuna = TextEditingController(text: 'Concepción');
   String tipo = 'Basura';
   int gravedad = 3;
   late LatLng posicion = widget.initialPunto ?? ecoCentro;
   bool guardando = false;
-  bool buscandoDireccion = false;
-  String? avisoUbicacion;
-  int _solicitudUbicacion = 0;
-  int _comunaEditada = 0;
-  int _direccionEditada = 0;
-  Timer? _esperaDireccion;
   XFile? fotoInicial;
 
   @override
-  void initState() {
-    super.initState();
-    if (widget.initialPunto != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _actualizarUbicacion(posicion);
-      });
-    }
-  }
-
-  void _actualizarUbicacion(LatLng punto) {
-    final solicitud = ++_solicitudUbicacion;
-    setState(() {
-      posicion = punto;
-      buscandoDireccion = true;
-      avisoUbicacion = null;
-    });
-    _esperaDireccion?.cancel();
-    // Espera para evitar una solicitud por cada toque consecutivo.
-    final versionComuna = _comunaEditada;
-    final versionDireccion = _direccionEditada;
-    _esperaDireccion = Timer(const Duration(milliseconds: 650), () {
-      _resolverUbicacion(punto, solicitud, versionComuna, versionDireccion);
-    });
-  }
-
-  Future<void> _resolverUbicacion(LatLng punto, int solicitud,
-      int versionComuna, int versionDireccion) async {
-    try {
-      final ubicacion = await GeocodificacionEco.invertir(punto);
-      // Si tocó otro lugar después, nunca rellenamos con la consulta anterior.
-      if (!mounted || solicitud != _solicitudUbicacion) return;
-      setState(() {
-        if (ubicacion == null) {
-          avisoUbicacion = 'No se encontró una dirección para este punto. '
-            'Ingresa la comuna y el sector manualmente.';
-        } else {
-          if (ubicacion.comuna.trim().isNotEmpty &&
-              versionComuna == _comunaEditada) {
-            comuna.text = ubicacion.comuna;
-          }
-          if (ubicacion.sector.trim().isNotEmpty &&
-              versionDireccion == _direccionEditada) {
-            direccion.text = ubicacion.sector;
-          }
-          if (ubicacion.comuna.isEmpty || ubicacion.sector.isEmpty) {
-            avisoUbicacion = 'Ubicación aproximada. Completa los datos que falten.';
-          } else {
-            avisoUbicacion = 'Comuna y sector sugeridos desde el marcador. '
-              'Puedes corregirlos antes de enviar.';
-          }
-        }
-      });
-    } catch (_) {
-      if (!mounted || solicitud != _solicitudUbicacion) return;
-      setState(() => avisoUbicacion = 'No se pudo consultar la dirección '
-        'automáticamente. Puedes escribir la comuna y el sector manualmente.');
-    } finally {
-      if (mounted && solicitud == _solicitudUbicacion) {
-        setState(() => buscandoDireccion = false);
-      }
-    }
-  }
-
-  @override
   void dispose() {
-    _esperaDireccion?.cancel();
-    _solicitudUbicacion++;
     titulo.dispose();
     descripcion.dispose();
     direccion.dispose();
@@ -347,18 +293,11 @@ class _NuevoReportePageState extends State<NuevoReportePage> {
                   onChanged: (v) => setState(() => tipo = v ?? tipo),
                 ),
                 const SizedBox(height: 13),
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text('La comuna y dirección se sugieren automáticamente '
-                    'al marcar el lugar en el mapa. Puedes editarlas.',
-                    style: TextStyle(fontSize: 12, color: EcoColors.muted)),
-                ),
                 Row(
                   children: [
                     Expanded(
                       child: TextFormField(
                         controller: comuna,
-                        onChanged: (_) => _comunaEditada++,
                         validator: _obligatorio,
                         decoration: const InputDecoration(labelText: 'Comuna'),
                       ),
@@ -367,7 +306,6 @@ class _NuevoReportePageState extends State<NuevoReportePage> {
                     Expanded(
                       child: TextFormField(
                         controller: direccion,
-                        onChanged: (_) => _direccionEditada++,
                         validator: _obligatorio,
                         decoration: const InputDecoration(
                           labelText: 'Sector o dirección',
@@ -403,25 +341,7 @@ class _NuevoReportePageState extends State<NuevoReportePage> {
                 const SizedBox(height: 18),
                 SelectorPunto(
                   inicial: posicion,
-                  reportes: widget.store.reportes,
-                  onChanged: _actualizarUbicacion,
-                  verReporte: (id) => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => DetalleReportePage(
-                      store: widget.store, id: id))),
-                ),
-                if (buscandoDireccion) const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Row(children: [
-                    SizedBox(width: 14, height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2)),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Buscando comuna y dirección...')),
-                  ]),
-                ),
-                if (avisoUbicacion != null) Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(avisoUbicacion!,
-                    style: const TextStyle(color: EcoColors.muted, fontSize: 12)),
+                  onChanged: (p) => setState(() => posicion = p),
                 ),
                 const SizedBox(height: 15),
                 if (matches.isNotEmpty)
@@ -496,6 +416,48 @@ class DetalleReportePage extends StatefulWidget {
 
 class _DetalleReportePageState extends State<DetalleReportePage> {
   bool consultandoHistorial = false;
+  bool gestionando = false;
+  Future<void> _gestionar(Future<void> Function() accion) async {
+    if (gestionando) return;
+    setState(() => gestionando = true);
+    try {
+      await accion();
+    } catch (e) {
+      if (mounted) mostrarError(context, e);
+    } finally {
+      if (mounted) setState(() => gestionando = false);
+    }
+  }
+
+  Future<void> _tomar(Reporte r) async {
+    final equipo = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('¿Quién se hará cargo?'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, ''),
+            child: const Text('Yo, personalmente'),
+          ),
+          for (final b in widget.store.brigadas.where(
+            (b) => b.liderUid == widget.store.uid,
+          ))
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, b.id),
+              child: Text('Brigada: ${b.nombre}'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || equipo == null) return;
+    await _gestionar(
+      () => widget.store.tomarIncidencia(
+        r.id,
+        brigadaId: equipo.isEmpty ? null : equipo,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -633,47 +595,13 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
     }
   }
 
-  Future<void> _enviarInforme(Reporte r) async {
-    final resumen=TextEditingController();
-    final participantes=TextEditingController(text:'3');
-    final kilos=TextEditingController(text:'0');
+  Future<void> _adjuntar(
+    String id,
+    String fase, {
+    ImageSource origen = ImageSource.gallery,
+  }) async {
     try {
-      final aprobado=await showDialog<bool>(context: context, builder:(ctx)=>AlertDialog(
-        title:const Text('Enviar informe final de limpieza'),
-        content:SizedBox(width:490,child:SingleChildScrollView(child:Column(
-          mainAxisSize:MainAxisSize.min,children:[
-            const Text('Solo el jefe de la brigada asignada puede enviar este informe. Antes debes adjuntar la fotografía posterior de la limpieza.'),
-            const SizedBox(height:14),
-            TextField(controller:resumen,maxLines:5,
-              decoration:const InputDecoration(labelText:'Trabajo realizado',
-                helperText:'Mínimo 20 caracteres. Explica los residuos retirados.')),
-            const SizedBox(height:12),
-            TextField(controller:participantes,keyboardType:TextInputType.number,
-              decoration:const InputDecoration(labelText:'Participantes')),
-            const SizedBox(height:12),
-            TextField(controller:kilos,keyboardType:const TextInputType.numberWithOptions(decimal:true),
-              decoration:const InputDecoration(labelText:'Kilos retirados (estimados)',
-                helperText:'Indica 0 si no existe una medición confiable.')),
-          ]))),
-        actions:[
-          TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancelar')),
-          FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Enviar a revisión')),
-        ],
-      ));
-      if (!mounted || aprobado!=true) return;
-      await widget.store.enviarInformeFinal(r,resumen:resumen.text,
-        participantes:int.tryParse(participantes.text)??0,
-        kilosEstimados:double.tryParse(kilos.text.replaceAll(',','.'))??-1);
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content:Text('Informe enviado para validación administrativa.')));
-      await _refrescarHistorial();
-    } catch(e){if(mounted)mostrarError(context,e);}
-    finally {resumen.dispose();participantes.dispose();kilos.dispose();}
-  }
-
-  Future<void> _adjuntar(String id, String fase) async {
-    try {
-      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      final picked = await ImagePicker().pickImage(source: origen);
       if (picked == null) return;
       await widget.store.subirFotoReporte(id, fase, picked);
       if (mounted) {
@@ -705,6 +633,24 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
         );
       }
       final r = coincidencias.first;
+      final responsable =
+          r.estado == 'tomada' &&
+          r.tomadaPor == widget.store.uid &&
+          widget.store.autenticado;
+      bool evidenciaPropia(String fase) => widget.store
+          .evidenciasDe(r.id)
+          .any(
+            (f) =>
+                f['fase'] == fase &&
+                f['autor_uid'] == widget.store.uid &&
+                r.tomadaEn != null &&
+                (DateTime.tryParse(
+                      '${f['creado_en']}',
+                    )?.isBefore(r.tomadaEn!) ==
+                    false),
+          );
+      final antes = evidenciaPropia('inicial');
+      final despues = evidenciaPropia('posterior');
       final admin = widget.store.esAdmin;
       final lider =
           r.brigadaId.isNotEmpty && widget.store.gestionaBrigada(r.brigadaId);
@@ -718,7 +664,9 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
       if ((admin || lider) && r.estado == 'asignado') {
         acciones.add('en_proceso');
       }
-      // El paso a revisión se realiza únicamente mediante el informe final del jefe.
+      if ((admin || lider) && r.estado == 'en_proceso') {
+        acciones.add('en_revision');
+      }
       if (admin && r.estado == 'en_revision') {
         acciones.addAll(['cerrado', 'en_proceso']);
       }
@@ -760,6 +708,11 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
                         'Brigada asignada',
                         equipo.isEmpty ? 'Sin asignar' : equipo.first.nombre,
                       ),
+                      if (r.responsableNombre.isNotEmpty)
+                        _detalle(
+                          'Responsable',
+                          '${r.brigadaId.isEmpty ? 'Persona' : 'Brigada'}: ${r.responsableNombre}',
+                        ),
                       _detalle(
                         'Creado',
                         '${r.creadoEn.day}/${r.creadoEn.month}/${r.creadoEn.year}',
@@ -768,6 +721,76 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
                   ),
                 ),
                 const SizedBox(height: 17),
+                if (widget.store.autenticado &&
+                    ['pendiente', 'validado'].contains(r.estado) &&
+                    r.tomadaPor.isEmpty)
+                  FilledButton.icon(
+                    onPressed: gestionando ? null : () => _tomar(r),
+                    icon: const Icon(Icons.volunteer_activism),
+                    label: const Text('Tomar incidencia'),
+                  ),
+                if (responsable) ...[
+                  EcoPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const EcoSection(
+                          title: 'Mi limpieza',
+                          subtitle:
+                              'Registra las dos fotografías para finalizar.',
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: gestionando
+                              ? null
+                              : () => _gestionar(
+                                  () => _adjuntar(
+                                    r.id,
+                                    'inicial',
+                                    origen: ImageSource.camera,
+                                  ),
+                                ),
+                          icon: Icon(
+                            antes ? Icons.check_circle : Icons.camera_alt,
+                          ),
+                          label: Text(
+                            antes
+                                ? 'Foto del antes registrada'
+                                : 'Sacar foto del antes',
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: gestionando || !antes
+                              ? null
+                              : () => _gestionar(
+                                  () => _adjuntar(
+                                    r.id,
+                                    'posterior',
+                                    origen: ImageSource.camera,
+                                  ),
+                                ),
+                          icon: Icon(
+                            despues ? Icons.check_circle : Icons.camera_alt,
+                          ),
+                          label: Text(
+                            despues
+                                ? 'Foto del después registrada'
+                                : 'Sacar foto del después',
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: gestionando || !antes || !despues
+                              ? null
+                              : () => _gestionar(
+                                  () => widget.store.terminarIncidencia(r.id),
+                                ),
+                          icon: const Icon(Icons.task_alt),
+                          label: const Text('Terminar incidencia'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 17),
+                ],
                 const EcoSection(
                   title: 'Evidencias fotográficas',
                   subtitle:
@@ -822,7 +845,7 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
                     icon: const Icon(Icons.add_photo_alternate_outlined),
                     label: const Text('Añadir evidencia inicial'),
                   ),
-                if (lider &&
+                if ((admin || lider) &&
                     [
                       'asignado',
                       'en_proceso',
@@ -833,24 +856,6 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
                     icon: const Icon(Icons.camera_alt_outlined),
                     label: const Text('Adjuntar fotografía posterior'),
                   ),
-                if (widget.store.informeFinalDe(r.id) != null) ...[
-                  const SizedBox(height: 14),
-                  const EcoSection(title:'Informe final de la brigada'),
-                  EcoPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-                    Text('${widget.store.informeFinalDe(r.id)!['resumen']}',
-                      style:const TextStyle(height:1.4)),
-                    const SizedBox(height:8),
-                    Text('Participantes: ${widget.store.informeFinalDe(r.id)!['participantes']} · '
-                      'Kg estimados: ${widget.store.informeFinalDe(r.id)!['kilos_estimados']}',
-                      style:const TextStyle(color:EcoColors.muted)),
-                  ])),
-                ],
-                if (lider && r.estado=='en_proceso') ...[
-                  const SizedBox(height:14),
-                  FilledButton.icon(onPressed:()=>_enviarInforme(r),
-                    icon:const Icon(Icons.assignment_turned_in_outlined),
-                    label:const Text('Enviar informe final de limpieza')),
-                ],
                 if (admin && widget.store.validacionesDe(r.id).isNotEmpty) ...[
                   const SizedBox(height: 14),
                   const EcoSection(title: 'Revisiones administrativas'),
@@ -908,7 +913,7 @@ class _DetalleReportePageState extends State<DetalleReportePage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${m.fecha.day}/${m.fecha.month}/${m.fecha.year} · ${m.autorUid}',
+                          '${m.fecha.day}/${m.fecha.month}/${m.fecha.year}',
                           style: const TextStyle(
                             color: EcoColors.muted,
                             fontSize: 12,

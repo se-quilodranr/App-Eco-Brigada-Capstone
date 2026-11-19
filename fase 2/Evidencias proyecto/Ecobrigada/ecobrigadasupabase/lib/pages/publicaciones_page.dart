@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../main.dart';
-import '../services/api.dart';
+import '../services/api_original.dart';
 
 class PublicacionesPage extends StatefulWidget {
   const PublicacionesPage({super.key});

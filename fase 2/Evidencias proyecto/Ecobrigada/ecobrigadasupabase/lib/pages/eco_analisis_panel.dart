@@ -447,7 +447,8 @@ class _TodasReincidenciasState extends State<_TodasReincidencias> {
         padding: const EdgeInsets.all(18),
         itemCount: datos.length + 1,
         itemBuilder: (context, index) {
-          if (index == 0) return Column(crossAxisAlignment: CrossAxisAlignment.start,
+          if (index == 0) {
+            return Column(crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${datos.length} de ${widget.resultados.length} coincidencias',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
@@ -464,6 +465,7 @@ class _TodasReincidenciasState extends State<_TodasReincidencias> {
               ]),
               const SizedBox(height: 14),
             ]);
+          }
           return Padding(padding: const EdgeInsets.only(bottom: 10),
             child: _tarjetaReincidencia(datos[index - 1]));
         },
@@ -497,7 +499,8 @@ class _TodasAlertasState extends State<_TodasAlertas> {
         padding: const EdgeInsets.all(18),
         itemCount: datos.length + 1,
         itemBuilder: (context, index) {
-          if (index == 0) return Column(crossAxisAlignment: CrossAxisAlignment.start,
+          if (index == 0) {
+            return Column(crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${datos.length} de ${widget.alertas.length} alertas',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
@@ -514,6 +517,7 @@ class _TodasAlertasState extends State<_TodasAlertas> {
               ]),
               const SizedBox(height: 14),
             ]);
+          }
           return Padding(padding: const EdgeInsets.only(bottom: 10),
             child: _tarjetaAlerta(datos[index - 1]));
         },

@@ -1,4 +1,14 @@
-# Si se copia al proyecto, agregar estas líneas al .gitignore existente.
+# Flutter
+**/build/
+**/.dart_tool/
+**/.gradle/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/local.properties
+
+# Variables de entorno
+.env
+.env.*# Si se copia al proyecto, agregar estas líneas al .gitignore existente.
 CREDENCIALES_LIDERES_SOLO_LOCAL.json
 **/CREDENCIALES_LIDERES_SOLO_LOCAL.json
 supabase_config.json

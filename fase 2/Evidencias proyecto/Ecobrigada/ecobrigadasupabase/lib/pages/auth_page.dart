@@ -1,5 +1,7 @@
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../core/design.dart';
 import '../core/registro_validacion.dart';
 import '../core/store.dart';
@@ -7,177 +9,434 @@ import '../widgets/common.dart';
 
 class AuthPage extends StatefulWidget {
   final EcoStore store;
-  const AuthPage({super.key, required this.store});
+
+  const AuthPage({
+    super.key,
+    required this.store,
+  });
+
   @override
   State<AuthPage> createState() => _AuthPageState();
 }
 
 class _AuthPageState extends State<AuthPage> {
   final formulario = GlobalKey<FormState>();
+
+  // ÚNICOS CAMPOS DEL REGISTRO
   final nombre = TextEditingController();
-  final apellido = TextEditingController();
-  final rut = TextEditingController();
-  final comuna = TextEditingController();
-  final direccion = TextEditingController();
   final correo = TextEditingController();
   final clave = TextEditingController();
+
+  String? comunaSeleccionada;
+
+  final List<String> comunas = [
+    'Coronel',
+    'Concepción',
+    'Lota',
+    'San Pedro de la Paz',
+  ];
+
   bool registro = false;
   bool procesando = false;
   bool ocultar = true;
 
   @override
   void dispose() {
-    nombre.dispose(); apellido.dispose(); rut.dispose(); comuna.dispose();
-    direccion.dispose(); correo.dispose(); clave.dispose();
+    nombre.dispose();
+    correo.dispose();
+    clave.dispose();
     super.dispose();
   }
 
+  // MENSAJES
+  void mostrarMensaje(
+    String mensaje, {
+    bool error = false,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor:
+            error ? Colors.red.shade700 : EcoColors.green,
+      ),
+    );
+  }
+
+  // REGISTRARSE O INICIAR SESIÓN
   Future<void> enviar() async {
-    if (!(formulario.currentState?.validate() ?? false)) return;
+    if (!(formulario.currentState?.validate() ?? false)) {
+      return;
+    }
+
     setState(() => procesando = true);
+
     try {
       if (registro) {
-        await widget.store.registrar(
-          nombre: nombre.text,
-          apellido: apellido.text,
-          rut: rut.text,
-          correo: correo.text,
+        // REGISTRO CON SUPABASE AUTH
+        // No solicita RUT, apellido ni dirección.
+
+        final respuesta =
+            await Supabase.instance.client.auth.signUp(
+          email: correo.text.trim(),
           password: clave.text,
-          comuna: comuna.text,
-          direccion: direccion.text,
+          data: {
+            'nombre': nombre.text.trim(),
+            'comuna': comunaSeleccionada,
+          },
         );
+
+        if (!mounted) return;
+
+        if (respuesta.user == null) {
+          mostrarMensaje(
+            'No se pudo completar el registro.',
+            error: true,
+          );
+          return;
+        }
+
+        // Si Supabase exige confirmación de correo.
+        if (respuesta.session == null) {
+          setState(() {
+            registro = false;
+          });
+
+          mostrarMensaje(
+            'Cuenta registrada. Revisa tu correo '
+            'para confirmar tu cuenta.',
+          );
+        } else {
+          mostrarMensaje(
+            '¡Bienvenido a EcoBrigada! 🌱',
+          );
+
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        }
       } else {
-        await widget.store.acceder(correo.text, clave.text);
+        // INICIO DE SESIÓN
+        await widget.store.acceder(
+          correo.text.trim(),
+          clave.text,
+        );
+
+        if (!mounted) return;
+
+        mostrarMensaje(
+          '¡Sesión iniciada correctamente!',
+        );
+
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
       }
-      if (mounted && Navigator.of(context).canPop()) Navigator.pop(context);
     } on AuthException catch (e) {
       if (!mounted) return;
-      // Supabase no distingue públicamente entre correo inexistente y clave mala.
-      final credencialesInvalidas = !registro && (
-        e.code == 'invalid_credentials' ||
-        e.message.toLowerCase().contains('invalid login credentials') ||
-        e.message.toLowerCase().contains('invalid credentials'));
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(credencialesInvalidas
-          ? 'Correo o contraseña incorrectos'
-          : 'No fue posible ingresar: ${e.message}'),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Colors.red.shade700,
-      ));
+
+      final credencialesInvalidas =
+          !registro &&
+          (e.code == 'invalid_credentials' ||
+              e.message.toLowerCase().contains(
+                'invalid login credentials',
+              ));
+
+      mostrarMensaje(
+        credencialesInvalidas
+            ? 'Correo o contraseña incorrectos.'
+            : 'Error de autenticación: ${e.message}',
+        error: true,
+      );
     } catch (e) {
-      if (mounted && e.toString().contains('Verifica tu correo')) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-        setState(() => registro = false);
-      } else if (mounted) {
-        mostrarError(context, e);
-      }
+      mostrarMensaje(
+        'Ocurrió un error: $e',
+        error: true,
+      );
     } finally {
-      if (mounted) setState(() => procesando = false);
+      if (mounted) {
+        setState(() => procesando = false);
+      }
     }
+  }
+
+  // CAMBIAR ENTRE LOGIN Y REGISTRO
+  void cambiarModo() {
+    if (procesando) return;
+
+    formulario.currentState?.reset();
+
+    setState(() {
+      registro = !registro;
+      comunaSeleccionada = null;
+      ocultar = true;
+    });
+
+    nombre.clear();
+    clave.clear();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(registro ? 'Crear cuenta' : 'Mi cuenta')),
+      backgroundColor: const Color(0xFFF3F8F5),
+
+      appBar: AppBar(
+        title: Text(
+          registro ? 'Crear cuenta' : 'Iniciar sesión',
+        ),
+        backgroundColor: EcoColors.green,
+        foregroundColor: Colors.white,
+        centerTitle: true,
+      ),
+
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
+
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
+            constraints: const BoxConstraints(
+              maxWidth: 480,
+            ),
+
             child: EcoPanel(
               child: Form(
                 key: formulario,
+
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.stretch,
+
                   children: [
+                    // ICONO ECOBRIGADA
                     const CircleAvatar(
-                      radius: 32,
+                      radius: 38,
                       backgroundColor: EcoColors.mint,
-                      child: Icon(Icons.eco_rounded, color: EcoColors.green, size: 34),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(registro ? 'Únete a EcoBrigada' : 'Bienvenido de nuevo',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900,
-                        color: EcoColors.forest)),
-                    const SizedBox(height: 7),
-                    const Text('Participa en el cambio ambiental de tu comunidad.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: EcoColors.muted)),
-                    const SizedBox(height: 23),
-                    if (registro) ...[
-                      TextFormField(controller: nombre,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(labelText: 'Nombre *',
-                          prefixIcon: Icon(Icons.person_outline)),
-                        validator: (v) => RegistroValidacion.obligatorio(v, 'tu nombre')),
-                      const SizedBox(height: 12),
-                      TextFormField(controller: apellido,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(labelText: 'Apellido *'),
-                        validator: (v) => RegistroValidacion.obligatorio(v, 'tu apellido')),
-                      const SizedBox(height: 12),
-                      TextFormField(controller: rut,
-                        keyboardType: TextInputType.text,
-                        textCapitalization: TextCapitalization.characters,
-                        decoration: const InputDecoration(labelText: 'RUT *',
-                          hintText: '12.345.678-5'),
-                        validator: RegistroValidacion.rut),
-                      const SizedBox(height: 12),
-                    ],
-                    TextFormField(controller: correo,
-                      keyboardType: TextInputType.emailAddress,
-                      autofillHints: const [AutofillHints.email],
-                      decoration: const InputDecoration(labelText: 'Correo electrónico *',
-                        prefixIcon: Icon(Icons.alternate_email)),
-                      validator: RegistroValidacion.correo),
-                    const SizedBox(height: 12),
-                    TextFormField(controller: clave, obscureText: ocultar,
-                      autofillHints: [registro ? AutofillHints.newPassword : AutofillHints.password],
-                      decoration: InputDecoration(
-                        labelText: 'Contraseña *',
-                        suffixIcon: IconButton(
-                          tooltip: ocultar ? 'Mostrar contraseña' : 'Ocultar contraseña',
-                          onPressed: () => setState(() => ocultar = !ocultar),
-                          icon: Icon(ocultar
-                            ? Icons.visibility_outlined : Icons.visibility_off_outlined))),
-                      validator: registro ? RegistroValidacion.contrasena
-                        : (v) => (v ?? '').isEmpty ? 'Ingresa tu contraseña.' : null),
-                    if (registro) ...[
-                      const Padding(
-                        padding: EdgeInsets.only(top: 6, bottom: 12),
-                        child: Text('La contraseña debe tener al menos 6 caracteres.',
-                          style: TextStyle(color: EcoColors.muted, fontSize: 12)),
+                      child: Icon(
+                        Icons.eco_rounded,
+                        color: EcoColors.green,
+                        size: 42,
                       ),
-                      TextFormField(controller: comuna,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(labelText: 'Comuna *',
-                          hintText: 'Ej.: Concepción'),
-                        validator: (v) => RegistroValidacion.obligatorio(v, 'tu comuna')),
-                      const SizedBox(height: 12),
-                      TextFormField(controller: direccion,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(labelText: 'Dirección (opcional)',
-                          hintText: 'Calle y número',
-                          helperText: 'Puedes dejar este campo vacío.'),
-                        validator: (v) => (v ?? '').trim().length > 200
-                          ? 'La dirección puede tener hasta 200 caracteres.' : null),
-                      const SizedBox(height: 12),
-                      const Text('* Campos obligatorios',
-                        style: TextStyle(fontSize: 11, color: EcoColors.muted)),
-                    ],
-                    const SizedBox(height: 21),
-                    FilledButton(
-                      onPressed: procesando ? null : enviar,
-                      child: Text(procesando ? 'Procesando...'
-                        : registro ? 'Crear cuenta' : 'Ingresar'),
                     ),
+
+                    const SizedBox(height: 20),
+
+                    Text(
+                      registro
+                          ? 'Únete a EcoBrigada'
+                          : '¡Bienvenido de nuevo!',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.w900,
+                        color: EcoColors.forest,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      registro
+                          ? 'Crea tu cuenta y ayuda a cuidar '
+                            'el medioambiente.'
+                          : 'Ingresa a tu comunidad ambiental.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: EcoColors.muted,
+                        fontSize: 14,
+                      ),
+                    ),
+
+                    const SizedBox(height: 25),
+
+                    // NOMBRE SOLO EN REGISTRO
+                    if (registro) ...[
+                      TextFormField(
+                        controller: nombre,
+                        textCapitalization:
+                            TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Nombre',
+                          hintText: 'Tu nombre',
+                          prefixIcon:
+                              Icon(Icons.person_outline),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (valor) =>
+                            RegistroValidacion.obligatorio(
+                          valor,
+                          'tu nombre',
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+                    ],
+
+                    // CORREO ELECTRÓNICO
+                    TextFormField(
+                      controller: correo,
+                      keyboardType:
+                          TextInputType.emailAddress,
+                      autofillHints: const [
+                        AutofillHints.email,
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'Correo electrónico',
+                        hintText: 'ejemplo@correo.com',
+                        prefixIcon:
+                            Icon(Icons.alternate_email),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator:
+                          RegistroValidacion.correo,
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // CONTRASEÑA
+                    TextFormField(
+                      controller: clave,
+                      obscureText: ocultar,
+                      autofillHints: [
+                        registro
+                            ? AutofillHints.newPassword
+                            : AutofillHints.password,
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Contraseña',
+                        prefixIcon:
+                            const Icon(Icons.lock_outline),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          tooltip: ocultar
+                              ? 'Mostrar contraseña'
+                              : 'Ocultar contraseña',
+                          onPressed: () {
+                            setState(() {
+                              ocultar = !ocultar;
+                            });
+                          },
+                          icon: Icon(
+                            ocultar
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
+                      ),
+                      validator: registro
+                          ? RegistroValidacion.contrasena
+                          : (valor) {
+                              if ((valor ?? '').isEmpty) {
+                                return 'Ingresa tu contraseña.';
+                              }
+                              return null;
+                            },
+                    ),
+
+                    // COMUNA SOLO EN REGISTRO
+                    if (registro) ...[
+                      const SizedBox(height: 8),
+
+                      const Text(
+                        'La contraseña debe tener al menos '
+                        '6 caracteres.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: EcoColors.muted,
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<String>(
+                        initialValue: comunaSeleccionada,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Comuna',
+                          prefixIcon: Icon(
+                            Icons.location_city_outlined,
+                          ),
+                          border: OutlineInputBorder(),
+                        ),
+
+                        hint: const Text(
+                          'Selecciona tu comuna',
+                        ),
+
+                        items: comunas.map((comuna) {
+                          return DropdownMenuItem<String>(
+                            value: comuna,
+                            child: Text(comuna),
+                          );
+                        }).toList(),
+
+                        onChanged: procesando
+                            ? null
+                            : (valor) {
+                                setState(() {
+                                  comunaSeleccionada = valor;
+                                });
+                              },
+
+                        validator: (valor) {
+                          if (valor == null ||
+                              valor.isEmpty) {
+                            return 'Selecciona tu comuna.';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+
+                    const SizedBox(height: 25),
+
+                    // BOTÓN PRINCIPAL
+                    SizedBox(
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed:
+                            procesando ? null : enviar,
+                        icon: procesando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Icon(
+                                registro
+                                    ? Icons.person_add_rounded
+                                    : Icons.login_rounded,
+                              ),
+                        label: Text(
+                          procesando
+                              ? 'Procesando...'
+                              : registro
+                                  ? 'Crear mi cuenta'
+                                  : 'Ingresar',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // CAMBIAR DE LOGIN A REGISTRO
                     TextButton(
-                      onPressed: procesando ? null : () {
-                        setState(() {registro = !registro; formulario.currentState?.reset();});
-                      },
-                      child: Text(registro ? 'Ya tengo una cuenta' : 'Quiero registrarme'),
+                      onPressed:
+                          procesando ? null : cambiarModo,
+                      child: Text(
+                        registro
+                            ? '¿Ya tienes cuenta? Inicia sesión'
+                            : '¿No tienes cuenta? Regístrate',
+                      ),
                     ),
                   ],
                 ),

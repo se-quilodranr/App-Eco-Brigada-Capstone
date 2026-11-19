@@ -2,25 +2,15 @@ import 'dart:math';
 
 import 'package:latlong2/latlong.dart';
 
-/// Elimina marcas de carga inicial de la PRESENTACIÓN. No modifica Supabase.
-/// Las filas de demostración conservan sus datos originales y sus IDs.
-String etiquetaVisible(String texto) {
-  return texto
-      .replaceAll(RegExp(r'\[\s*FICTICIO(?:\s+QA-31)?\s*\]\s*', caseSensitive: false), '')
-      .replaceAll(RegExp(r'\s*\(\s*fictici[oa]s?\s*\)', caseSensitive: false), '')
-      .replaceAll(RegExp(r'\b(?:ficticio|ficticia|ficticios|ficticias)\b', caseSensitive: false), '')
-      .replaceAll(RegExp(r' {2,}'), ' ')
-      .trim();
-}
-
 const estadosReporte = [
-  'pendiente', 'validado', 'asignado', 'en_proceso', 'en_revision', 'cerrado', 'descartado',
+  'pendiente', 'validado', 'asignado', 'tomada', 'en_proceso', 'en_revision', 'cerrado', 'descartado',
 ];
 
 String estadoNombre(String value) => switch (value) {
   'pendiente' => 'Pendiente',
   'validado' => 'Validado',
   'asignado' => 'Asignado',
+  'tomada' => 'Incidencia tomada',
   'en_proceso' => 'En ejecución',
   'en_revision' => 'En revisión',
   'cerrado' => 'Cerrado',
@@ -44,6 +34,8 @@ class Reporte {
   final String estado;
   final String creadorUid;
   final String brigadaId;
+  final String tomadaPor, responsableNombre;
+  final DateTime? tomadaEn;
   final DateTime creadoEn;
   final DateTime actualizadoEn;
   final DateTime? cerradoEn;
@@ -55,6 +47,7 @@ class Reporte {
     required this.prioridad, required this.estado, required this.creadorUid,
     required this.brigadaId, required this.creadoEn, required this.actualizadoEn,
     required this.cerradoEn,
+    this.tomadaPor = '', this.responsableNombre = '', this.tomadaEn,
   });
 
   bool get abierto => estado != 'cerrado' && estado != 'descartado';
@@ -69,6 +62,7 @@ class Reporte {
       brigadaId: brigadaId ?? this.brigadaId,
       creadoEn: creadoEn, actualizadoEn: actualizadoEn ?? this.actualizadoEn,
       cerradoEn: cerradoEn ?? this.cerradoEn,
+      tomadaPor: tomadaPor, responsableNombre: responsableNombre, tomadaEn: tomadaEn,
     );
 
   Map<String, dynamic> toJson() => {
@@ -79,11 +73,13 @@ class Reporte {
     'creadoEn': creadoEn.toIso8601String(),
     'actualizadoEn': actualizadoEn.toIso8601String(),
     'cerradoEn': cerradoEn?.toIso8601String(),
+    'tomada_por': tomadaPor, 'responsable_nombre': responsableNombre,
+    'tomada_en': tomadaEn?.toIso8601String(),
   };
 
   factory Reporte.fromJson(Map<String, dynamic> d) => Reporte(
-    id: '${d['id'] ?? ''}', titulo: etiquetaVisible('${d['titulo'] ?? ''}'),
-    descripcion: etiquetaVisible('${d['descripcion'] ?? ''}'), tipo: '${d['tipo'] ?? 'Otro'}',
+    id: '${d['id'] ?? ''}', titulo: '${d['titulo'] ?? ''}',
+    descripcion: '${d['descripcion'] ?? ''}', tipo: '${d['tipo'] ?? 'Otro'}',
     direccion: '${d['direccion'] ?? ''}', comuna: '${d['comuna'] ?? ''}',
     lat: (d['lat'] as num?)?.toDouble() ?? -36.827,
     lng: (d['lng'] as num?)?.toDouble() ?? -73.050,
@@ -95,6 +91,9 @@ class Reporte {
     creadoEn: DateTime.tryParse('${d['creadoEn']}') ?? DateTime.now(),
     actualizadoEn: DateTime.tryParse('${d['actualizadoEn']}') ?? DateTime.now(),
     cerradoEn: DateTime.tryParse('${d['cerradoEn']}'),
+    tomadaPor: '${d['tomada_por'] ?? ''}',
+    responsableNombre: '${d['responsable_nombre'] ?? ''}',
+    tomadaEn: DateTime.tryParse('${d['tomada_en']}'),
   );
 }
 
@@ -113,8 +112,8 @@ class Brigada {
     'miembros': miembros, 'disponible': disponible,
   };
   factory Brigada.fromJson(Map<String, dynamic> d) => Brigada(
-    id: '${d['id'] ?? ''}', nombre: etiquetaVisible('${d['nombre'] ?? ''}'),
-    descripcion: etiquetaVisible('${d['descripcion'] ?? ''}'), comuna: '${d['comuna'] ?? ''}',
+    id: '${d['id'] ?? ''}', nombre: '${d['nombre'] ?? ''}',
+    descripcion: '${d['descripcion'] ?? ''}', comuna: '${d['comuna'] ?? ''}',
     liderUid: '${d['liderUid'] ?? ''}',
     lat: (d['lat'] as num?)?.toDouble() ?? -36.827,
     lng: (d['lng'] as num?)?.toDouble() ?? -73.050,
@@ -124,18 +123,34 @@ class Brigada {
 }
 
 class Jornada {
-  final String id, titulo, brigadaId, lugar, estado;
+  final String id, titulo, brigadaId, lugar;
+  final String estado;
   final DateTime fecha;
-  const Jornada({required this.id, required this.titulo,
-    required this.brigadaId, required this.lugar, required this.fecha,
-    this.estado = 'programada'});
+
+  const Jornada({
+    required this.id,
+    required this.titulo,
+    required this.brigadaId,
+    required this.lugar,
+    required this.fecha,
+    this.estado = 'programada',
+  });
+
   Map<String, dynamic> toJson() => {
-    'id': id, 'titulo': titulo, 'brigadaId': brigadaId,
-    'lugar': lugar, 'fecha': fecha.toIso8601String(), 'estado': estado,
+    'id': id,
+    'titulo': titulo,
+    'brigadaId': brigadaId,
+    'lugar': lugar,
+    'estado': estado,
+    'fecha': fecha.toIso8601String(),
   };
+
   factory Jornada.fromJson(Map<String, dynamic> d) => Jornada(
-    id: '${d['id'] ?? ''}', titulo: etiquetaVisible('${d['titulo'] ?? ''}'),
-    brigadaId: '${d['brigadaId'] ?? ''}', lugar: etiquetaVisible('${d['lugar'] ?? ''}'), estado: '${d['estado'] ?? 'programada'}',
+    id: '${d['id'] ?? ''}',
+    titulo: '${d['titulo'] ?? ''}',
+    brigadaId: '${d['brigadaId'] ?? ''}',
+    lugar: '${d['lugar'] ?? ''}',
+    estado: '${d['estado'] ?? 'programada'}',
     fecha: DateTime.tryParse('${d['fecha']}') ?? DateTime.now(),
   );
 }
@@ -153,7 +168,7 @@ class Movimiento {
   factory Movimiento.fromJson(Map<String, dynamic> d) => Movimiento(
     id: '${d['id'] ?? ''}', reporteId: '${d['reporteId'] ?? ''}',
     anterior: '${d['anterior'] ?? ''}', nuevo: '${d['nuevo'] ?? ''}',
-    autorUid: '${d['autorUid'] ?? ''}', comentario: etiquetaVisible('${d['comentario'] ?? ''}'),
+    autorUid: '${d['autorUid'] ?? ''}', comentario: '${d['comentario'] ?? ''}',
     fecha: DateTime.tryParse('${d['fecha']}') ?? DateTime.now(),
   );
 }
@@ -234,8 +249,8 @@ class MensajeBrigada {
   factory MensajeBrigada.fromJson(Map<String, dynamic> d) => MensajeBrigada(
     id: '${d['id'] ?? ''}', brigadaId: '${d['brigadaId'] ?? ''}',
     autorUid: '${d['autorUid'] ?? ''}',
-    autorNombre: etiquetaVisible('${d['autorNombre'] ?? 'Integrante'}'),
-    texto: etiquetaVisible('${d['texto'] ?? ''}'),
+    autorNombre: '${d['autorNombre'] ?? 'Integrante'}',
+    texto: '${d['texto'] ?? ''}',
     fecha: DateTime.tryParse('${d['fecha']}') ?? DateTime.now(),
   );
 }
@@ -254,8 +269,8 @@ class PuntoReciclaje {
     'comuna': comuna, 'lat': lat, 'lng': lng,
   };
   factory PuntoReciclaje.fromJson(Map<String, dynamic> d) =>
-      PuntoReciclaje(id: '${d['id'] ?? ''}', nombre: etiquetaVisible('${d['nombre'] ?? ''}'),
-        descripcion: etiquetaVisible('${d['descripcion'] ?? ''}'), comuna: '${d['comuna'] ?? ''}',
+      PuntoReciclaje(id: '${d['id'] ?? ''}', nombre: '${d['nombre'] ?? ''}',
+        descripcion: '${d['descripcion'] ?? ''}', comuna: '${d['comuna'] ?? ''}',
         lat: (d['lat'] as num?)?.toDouble() ?? 0,
         lng: (d['lng'] as num?)?.toDouble() ?? 0);
 }

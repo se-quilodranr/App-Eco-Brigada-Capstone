@@ -17,8 +17,8 @@ import 'pages/mapa_page.dart';
 import 'pages/extra_page.dart';
 import 'pages/perfil_page.dart';
 import 'pages/notificaciones_page.dart';
-import 'original/publicaciones_page.dart';
-import 'original/brigadas_page.dart' as original_brigades;
+import 'pages/publicaciones_page.dart';
+
 
 // OPCIÓN 1: pega aquí los datos de Project Settings > API Keys / Connect.
 // Solo utiliza la Project URL y la Publishable Key (sb_publishable_...).
@@ -251,7 +251,7 @@ class _EcoShellState extends State<EcoShell> {
             appBar: AppBar(
               title: const Text('Brigadas y actividades anteriores'),
             ),
-            body: const original_brigades.BrigadasPage(),
+
           ),
         ),
       );
